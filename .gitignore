@@ -1,7 +1,7 @@
 # Cache objects
 packer_cache/
 redis/data/
-postgres/data/
+postgres\data\
 synapse/data/
 
 # Crash log
@@ -17,3 +17,4 @@ crash.log
 
 # For built boxes
 *.box
+/postgres
