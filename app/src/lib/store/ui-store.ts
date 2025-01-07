@@ -11,14 +11,13 @@ interface UIState {
   setLoading: (loading: boolean) => void;
 }
 
-export const useUIStore = create<UIState>()((set) => ({
+export const useUIStore = create<UIState>()(set => ({
   isSidebarOpen: true,
   activeModal: null,
   isLoading: false,
-  toggleSidebar: () =>
-    set((state) => ({ isSidebarOpen: !state.isSidebarOpen })),
-  setSidebarOpen: (open) => set({ isSidebarOpen: open }),
-  openModal: (modalId) => set({ activeModal: modalId }),
+  toggleSidebar: () => set(state => ({ isSidebarOpen: !state.isSidebarOpen })),
+  setSidebarOpen: open => set({ isSidebarOpen: open }),
+  openModal: modalId => set({ activeModal: modalId }),
   closeModal: () => set({ activeModal: null }),
-  setLoading: (loading) => set({ isLoading: loading }),
+  setLoading: loading => set({ isLoading: loading }),
 }));

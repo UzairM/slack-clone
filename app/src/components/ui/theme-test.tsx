@@ -1,137 +1,143 @@
 'use client';
 
-import { Button } from '@/components/ui/button';
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardFooter,
-  CardHeader,
-  CardTitle,
-} from '@/components/ui/card';
+import { useTheme } from 'next-themes';
+
+interface ColorBlockProps {
+  label: string;
+  variable: string;
+  className?: string;
+  hexValue?: string;
+}
+
+function ColorBlock({ label, variable, className, hexValue }: ColorBlockProps) {
+  return (
+    <div className="flex flex-col gap-2">
+      <div
+        className={`h-16 w-16 rounded-md border ${className}`}
+        style={{ backgroundColor: `hsl(var(${variable}))` }}
+      />
+      <div className="text-sm">
+        <p className="font-medium">{label}</p>
+        <p className="text-xs text-muted-foreground">var({variable})</p>
+        {hexValue && <p className="text-xs text-muted-foreground mt-0.5">{hexValue}</p>}
+      </div>
+    </div>
+  );
+}
 
 export function ThemeTest() {
+  const { theme, setTheme } = useTheme();
+
   return (
-    <div className="space-y-8 p-8">
-      <div className="grid gap-6">
-        {/* Background and Text Colors */}
-        <Card>
-          <CardHeader>
-            <CardTitle>Background & Text Colors</CardTitle>
-            <CardDescription>
-              Testing different background and text color combinations
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="grid gap-2">
-            <div className="bg-background text-foreground p-4 rounded-md border">
-              Background & Foreground
-            </div>
-            <div className="bg-primary text-primary-foreground p-4 rounded-md">Primary</div>
-            <div className="bg-secondary text-secondary-foreground p-4 rounded-md">Secondary</div>
-            <div className="bg-muted text-muted-foreground p-4 rounded-md">Muted</div>
-            <div className="bg-accent text-accent-foreground p-4 rounded-md">Accent</div>
-          </CardContent>
-        </Card>
+    <div className="space-y-8">
+      {/* Theme Switcher */}
+      <div className="flex items-center gap-4">
+        <button
+          onClick={() => setTheme('light')}
+          className={`px-4 py-2 rounded-md transition-colors ${
+            theme === 'light'
+              ? 'bg-primary text-primary-foreground'
+              : 'bg-muted text-muted-foreground'
+          }`}
+        >
+          Light
+        </button>
+        <button
+          onClick={() => setTheme('dark')}
+          className={`px-4 py-2 rounded-md transition-colors ${
+            theme === 'dark'
+              ? 'bg-primary text-primary-foreground'
+              : 'bg-muted text-muted-foreground'
+          }`}
+        >
+          Dark
+        </button>
+      </div>
 
-        {/* Cards */}
-        <Card>
-          <CardHeader>
-            <CardTitle>Card Variations</CardTitle>
-            <CardDescription>Different card styles and backgrounds</CardDescription>
-          </CardHeader>
-          <CardContent className="grid gap-4 md:grid-cols-2">
-            {/* Default Card */}
-            <Card>
-              <CardHeader>
-                <CardTitle>Default Card</CardTitle>
-                <CardDescription>Uses default card styling</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <p>This card shows the default background and border styles.</p>
-              </CardContent>
-            </Card>
+      {/* Color Blocks */}
+      <div className="space-y-8">
+        <div>
+          <h2 className="text-lg font-semibold mb-4">Slack Brand Colors</h2>
+          <div className="grid grid-cols-2 gap-4 md:grid-cols-4 lg:grid-cols-6">
+            <ColorBlock label="Primary (Purple)" variable="--primary" hexValue="#4A154B" />
+            <ColorBlock label="Secondary (Blue)" variable="--secondary" hexValue="#36C5F0" />
+            <ColorBlock label="Success (Green)" variable="--success" hexValue="#2EB67D" />
+            <ColorBlock label="Warning (Yellow)" variable="--warning" hexValue="#ECB22E" />
+            <ColorBlock label="Destructive (Red)" variable="--destructive" hexValue="#E01E5A" />
+          </div>
+        </div>
 
-            {/* Interactive Card */}
-            <Card className="border-primary">
-              <CardHeader className="border-b-primary">
-                <CardTitle>Interactive Card</CardTitle>
-                <CardDescription>With primary border accent</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <p>This card has primary-colored borders.</p>
-              </CardContent>
-              <CardFooter className="border-t-primary">
-                <Button variant="outline" className="mr-2">
-                  Cancel
-                </Button>
-                <Button>Submit</Button>
-              </CardFooter>
-            </Card>
+        <div>
+          <h2 className="text-lg font-semibold mb-4">Background Colors</h2>
+          <div className="grid grid-cols-2 gap-4 md:grid-cols-4 lg:grid-cols-6">
+            <ColorBlock
+              label="Background"
+              variable="--background"
+              hexValue={theme === 'dark' ? '#1A1D21' : '#FFFFFF'}
+            />
+            <ColorBlock
+              label="Foreground"
+              variable="--foreground"
+              hexValue={theme === 'dark' ? '#D1D2D3' : '#1D1C1D'}
+            />
+            <ColorBlock
+              label="Card"
+              variable="--card"
+              hexValue={theme === 'dark' ? '#222529' : '#FFFFFF'}
+            />
+            <ColorBlock
+              label="Card Foreground"
+              variable="--card-foreground"
+              hexValue={theme === 'dark' ? '#D1D2D3' : '#1D1C1D'}
+            />
+          </div>
+        </div>
 
-            {/* Muted Card */}
-            <Card className="bg-muted">
-              <CardHeader>
-                <CardTitle>Muted Card</CardTitle>
-                <CardDescription>Using muted background</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <p>This card demonstrates the muted background color.</p>
-              </CardContent>
-            </Card>
+        <div>
+          <h2 className="text-lg font-semibold mb-4">UI Colors</h2>
+          <div className="grid grid-cols-2 gap-4 md:grid-cols-4 lg:grid-cols-6">
+            <ColorBlock
+              label="Muted"
+              variable="--muted"
+              hexValue={theme === 'dark' ? '#222529' : '#F8F8F8'}
+            />
+            <ColorBlock
+              label="Muted Foreground"
+              variable="--muted-foreground"
+              hexValue={theme === 'dark' ? '#ABABAD' : '#616061'}
+            />
+            <ColorBlock
+              label="Border"
+              variable="--border"
+              hexValue={theme === 'dark' ? '#424242' : '#DDDDDD'}
+            />
+            <ColorBlock label="Ring" variable="--ring" hexValue="#36C5F0" />
+          </div>
+        </div>
+      </div>
 
-            {/* Accent Card */}
-            <Card className="bg-accent">
-              <CardHeader>
-                <CardTitle>Accent Card</CardTitle>
-                <CardDescription>Using accent background</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <p>This card demonstrates the accent background color.</p>
-              </CardContent>
-            </Card>
-          </CardContent>
-        </Card>
+      {/* CSS Variable Values */}
+      <div className="space-y-4">
+        <h2 className="text-lg font-semibold">Current CSS Variable Values</h2>
+        <pre className="p-4 rounded-lg bg-muted font-mono text-sm whitespace-pre-wrap">
+          {`{
+  /* Base Colors */
+  --background: ${getComputedStyle(document.documentElement).getPropertyValue('--background')};
+  --foreground: ${getComputedStyle(document.documentElement).getPropertyValue('--foreground')};
 
-        {/* Destructive */}
-        <Card className="border-destructive">
-          <CardHeader className="border-b-destructive">
-            <CardTitle className="text-destructive">Destructive Styles</CardTitle>
-            <CardDescription>Testing destructive color variants</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="bg-destructive text-destructive-foreground p-4 rounded-md">
-              Destructive Background
-            </div>
-            <Button variant="destructive" className="w-full">
-              Destructive Button
-            </Button>
-          </CardContent>
-        </Card>
+  /* Slack Brand Colors */
+  --primary: ${getComputedStyle(document.documentElement).getPropertyValue('--primary')};
+  --secondary: ${getComputedStyle(document.documentElement).getPropertyValue('--secondary')};
+  --success: ${getComputedStyle(document.documentElement).getPropertyValue('--success')};
+  --warning: ${getComputedStyle(document.documentElement).getPropertyValue('--warning')};
+  --destructive: ${getComputedStyle(document.documentElement).getPropertyValue('--destructive')};
 
-        {/* Inputs & Buttons */}
-        <Card>
-          <CardHeader>
-            <CardTitle>Interactive Elements</CardTitle>
-            <CardDescription>Testing inputs, buttons, and focus states</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="grid gap-4">
-              <input
-                type="text"
-                className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
-                placeholder="Input with focus ring"
-              />
-              <div className="flex flex-wrap gap-2">
-                <Button variant="default">Default</Button>
-                <Button variant="destructive">Destructive</Button>
-                <Button variant="outline">Outline</Button>
-                <Button variant="secondary">Secondary</Button>
-                <Button variant="ghost">Ghost</Button>
-                <Button variant="link">Link</Button>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
+  /* UI Colors */
+  --muted: ${getComputedStyle(document.documentElement).getPropertyValue('--muted')};
+  --border: ${getComputedStyle(document.documentElement).getPropertyValue('--border')};
+  --ring: ${getComputedStyle(document.documentElement).getPropertyValue('--ring')};
+}`}
+        </pre>
       </div>
     </div>
   );

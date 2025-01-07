@@ -21,16 +21,16 @@ interface UserState {
 
 export const useUserStore = create<UserState>()(
   persist(
-    (set) => ({
+    set => ({
       user: null,
       isAuthenticated: false,
-      setUser: (user) => set({ user, isAuthenticated: !!user }),
-      setStatus: (status) =>
-        set((state) => ({
+      setUser: user => set({ user, isAuthenticated: !!user }),
+      setStatus: status =>
+        set(state => ({
           user: state.user ? { ...state.user, status } : null,
         })),
-      setCustomStatus: (customStatus) =>
-        set((state) => ({
+      setCustomStatus: customStatus =>
+        set(state => ({
           user: state.user ? { ...state.user, customStatus } : null,
         })),
       logout: () => set({ user: null, isAuthenticated: false }),

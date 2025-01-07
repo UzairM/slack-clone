@@ -2,20 +2,178 @@
 @tailwind components;
 @tailwind utilities;
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
-
-@media (prefers-color-scheme: dark) {
+@layer base {
   :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+    /* Base Colors */
+    --background: 0 0% 100%; /* #FFFFFF */
+    --foreground: 240 3% 12%; /* #1D1C1D */
+
+    /* Slack Brand Colors */
+    --primary: 299 71% 18%; /* #4A154B - Slack Purple */
+    --primary-foreground: 0 0% 100%; /* #FFFFFF */
+    --secondary: 196 89% 57%; /* #36C5F0 - Slack Blue */
+    --secondary-foreground: 0 0% 0%; /* #000000 */
+    --success: 152 63% 45%; /* #2EB67D - Slack Green */
+    --success-foreground: 0 0% 100%; /* #FFFFFF */
+    --warning: 39 84% 55%; /* #ECB22E - Slack Yellow */
+    --warning-foreground: 0 0% 0%; /* #000000 */
+    --destructive: 344 82% 50%; /* #E01E5A - Slack Red */
+    --destructive-foreground: 0 0% 100%; /* #FFFFFF */
+
+    /* UI Colors */
+    --accent: 196 89% 57%; /* #36C5F0 - Same as secondary */
+    --accent-foreground: 0 0% 0%;
+    --muted: 240 4% 95%; /* #F8F8F8 */
+    --muted-foreground: 240 4% 38%; /* #616061 */
+    --card: 0 0% 100%; /* #FFFFFF */
+    --card-foreground: 240 3% 12%; /* #1D1C1D */
+    --popover: 0 0% 100%; /* #FFFFFF */
+    --popover-foreground: 240 3% 12%; /* #1D1C1D */
+
+    /* Interactive Colors */
+    --border: 240 5% 93%; /* #DDDDDD */
+    --input: 240 5% 93%; /* #DDDDDD */
+    --ring: 196 89% 57%; /* #36C5F0 - Slack Blue */
+
+    --radius: 0.5rem;
+  }
+
+  .dark {
+    /* Base Colors */
+    --background: 225 6% 13%; /* #1A1D21 */
+    --foreground: 0 0% 95%; /* #D1D2D3 */
+
+    /* Slack Brand Colors - Same as light mode */
+    --primary: 299 71% 18%; /* #4A154B */
+    --primary-foreground: 0 0% 100%;
+    --secondary: 196 89% 57%; /* #36C5F0 */
+    --secondary-foreground: 0 0% 0%;
+    --success: 152 63% 45%; /* #2EB67D */
+    --success-foreground: 0 0% 100%;
+    --warning: 39 84% 55%; /* #ECB22E */
+    --warning-foreground: 0 0% 0%;
+    --destructive: 344 82% 50%; /* #E01E5A */
+    --destructive-foreground: 0 0% 100%;
+
+    /* UI Colors - Dark Mode */
+    --accent: 196 89% 57%;
+    --accent-foreground: 0 0% 100%;
+    --muted: 225 6% 13%; /* #222529 */
+    --muted-foreground: 240 4% 67%; /* #ABABAD */
+    --card: 225 6% 13%; /* #222529 */
+    --card-foreground: 0 0% 95%; /* #D1D2D3 */
+    --popover: 225 6% 13%; /* #222529 */
+    --popover-foreground: 0 0% 95%; /* #D1D2D3 */
+
+    /* Interactive Colors - Dark Mode */
+    --border: 240 4% 26%; /* #424242 */
+    --input: 225 6% 13%; /* #222529 */
+    --ring: 196 89% 57%; /* #36C5F0 */
   }
 }
 
-body {
-  color: var(--foreground);
-  background: var(--background);
-  font-family: Arial, Helvetica, sans-serif;
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground antialiased;
+  }
+}
+
+@layer components {
+  /* Message Component */
+  .message-hover {
+    @apply relative p-4 transition-colors duration-200;
+    &:hover {
+      @apply bg-[#F8F8F8] dark:bg-[#222529];
+    }
+  }
+
+  .message-text {
+    @apply text-[#1D1C1D] dark:text-[#D1D2D3] text-[15px] leading-[1.46668];
+  }
+
+  .message-timestamp {
+    @apply text-sm text-[#616061] dark:text-[#ABABAD] select-none;
+  }
+
+  .message-username {
+    @apply font-bold text-[#1D1C1D] dark:text-[#D1D2D3] hover:underline cursor-pointer select-none;
+  }
+
+  /* Button Styles */
+  .button-primary {
+    @apply bg-[#007A5A] text-white rounded px-4 py-1.5 text-[15px] font-medium transition-colors duration-200 select-none;
+    &:hover {
+      @apply bg-[#148567];
+    }
+    &:focus-visible {
+      @apply outline-none ring-2 ring-[#1264A3] ring-offset-2;
+    }
+  }
+
+  .button-secondary {
+    @apply text-[#1264A3] rounded px-2 py-1 text-sm transition-colors duration-200 select-none;
+    &:hover {
+      @apply bg-[#1264A3]/10 dark:bg-[#1264A3]/20;
+    }
+    &:focus-visible {
+      @apply outline-none ring-2 ring-[#1264A3] ring-offset-2;
+    }
+  }
+
+  /* Input Styles */
+  .input-primary {
+    @apply bg-white dark:bg-[#222529] text-[#1D1C1D] dark:text-[#D1D2D3] text-[15px] leading-[1.46668] w-full;
+    @apply border border-[#868686]/20 rounded-lg px-3 py-2;
+    @apply placeholder:text-[#616061] dark:placeholder:text-[#ABABAD];
+    @apply transition-all duration-200;
+    @apply focus:outline-none focus:ring-2 focus:ring-[#1264A3] focus:border-transparent;
+  }
+
+  /* Container Styles */
+  .container-card {
+    @apply bg-white dark:bg-[#222529] border border-[#868686]/20 rounded-lg p-2;
+    @apply shadow-[0_0_0_1px_rgba(6,6,7,0.1),0_4px_8px_rgba(0,0,0,0.08)];
+  }
+
+  /* Reaction Styles */
+  .reaction-badge {
+    @apply inline-flex items-center gap-1.5 px-2 py-1 text-sm rounded-full select-none;
+    @apply bg-[#F8F8F8] dark:bg-[#222529] border border-[#868686]/20;
+    @apply transition-colors duration-200 cursor-pointer;
+    &:hover {
+      @apply bg-[#1264A3]/10 dark:bg-[#1264A3]/20;
+    }
+  }
+
+  .reaction-icon {
+    @apply w-3.5 h-3.5 text-[#1264A3] flex-shrink-0;
+  }
+
+  .reaction-count {
+    @apply text-[13px] text-[#1D1C1D] dark:text-[#D1D2D3] min-w-[1ch] text-center;
+  }
+
+  /* Action Button Styles */
+  .action-button {
+    @apply inline-flex items-center gap-1.5 px-2 py-1 text-sm rounded text-[#1264A3] select-none;
+    @apply transition-all duration-200;
+    &:hover {
+      @apply bg-[#1264A3]/10 dark:bg-[#1264A3]/20;
+    }
+    &:focus-visible {
+      @apply outline-none ring-2 ring-[#1264A3] ring-offset-2;
+    }
+  }
+
+  .action-button-icon {
+    @apply w-4 h-4 flex-shrink-0;
+  }
+
+  .action-button-text {
+    @apply text-[13px] min-w-[1ch] text-center;
+  }
 }
