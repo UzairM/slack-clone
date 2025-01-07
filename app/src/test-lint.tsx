@@ -1,6 +1,13 @@
-// Test file with linting issues
-const TestComponent = props => {
-  const [state, setState] = React.useState('');
+import { useState } from 'react';
 
-  return <div>{state}</div>;
+interface TestComponentProps {
+  label?: string;
+}
+
+const TestComponent = ({ label }: TestComponentProps): JSX.Element => {
+  const [state, setState] = useState('');
+
+  return <div>{state || label}</div>;
 };
+
+export default TestComponent;
