@@ -1,0 +1,70 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id           String    @id @default(cuid())
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  name         String
+  email        String    @unique
+  avatar       String?
+  status       String?   @default("offline") // online, offline, away, busy
+  customStatus String?
+  messages     Message[]
+  channels     Channel[] @relation("ChannelMembers")
+  ownedRooms   Channel[] @relation("ChannelOwner")
+  reactions    MessageReaction[]
+}
+
+model Channel {
+  id          String    @id @default(cuid())
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  name        String
+  type        String    // public, private, direct
+  messages    Message[]
+  members     User[]    @relation("ChannelMembers")
+  owner       User      @relation("ChannelOwner", fields: [ownerId], references: [id])
+  ownerId     String
+  description String?
+  avatar      String?
+  isEncrypted Boolean   @default(false)
+}
+
+model Message {
+  id        String   @id @default(cuid())
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  content   String
+  channel   Channel  @relation(fields: [channelId], references: [id])
+  channelId String
+  sender    User     @relation(fields: [senderId], references: [id])
+  senderId  String
+  edited    Boolean  @default(false)
+  deleted   Boolean  @default(false)
+  replyTo   Message? @relation("MessageReplies", fields: [replyToId], references: [id])
+  replyToId String?
+  replies   Message[] @relation("MessageReplies")
+  reactions MessageReaction[]
+}
+
+model MessageReaction {
+  id        String   @id @default(cuid())
+  createdAt DateTime @default(now())
+  emoji     String
+  message   Message  @relation(fields: [messageId], references: [id])
+  messageId String
+  user      User     @relation(fields: [userId], references: [id])
+  userId    String
+
+  @@unique([messageId, userId, emoji])
+}
