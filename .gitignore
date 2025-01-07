@@ -18,3 +18,4 @@ crash.log
 # For built boxes
 *.box
 /postgres
+/postgres/data/base
