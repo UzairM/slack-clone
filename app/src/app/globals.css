@@ -6,69 +6,69 @@
   :root {
     /* Base Colors */
     --background: 0 0% 100%; /* #FFFFFF */
-    --foreground: 240 3% 12%; /* #1D1C1D */
+    --foreground: 222.2 84% 4.9%; /* #1D1C1D */
 
     /* Slack Brand Colors */
-    --primary: 299 71% 18%; /* #4A154B - Slack Purple */
-    --primary-foreground: 0 0% 100%; /* #FFFFFF */
-    --secondary: 196 89% 57%; /* #36C5F0 - Slack Blue */
-    --secondary-foreground: 0 0% 0%; /* #000000 */
+    --primary: 222.2 47.4% 11.2%; /* #4A154B - Slack Purple */
+    --primary-foreground: 210 40% 98%; /* #FFFFFF */
+    --secondary: 210 40% 96.1%; /* #36C5F0 - Slack Blue */
+    --secondary-foreground: 222.2 47.4% 11.2%; /* #000000 */
     --success: 152 63% 45%; /* #2EB67D - Slack Green */
     --success-foreground: 0 0% 100%; /* #FFFFFF */
     --warning: 39 84% 55%; /* #ECB22E - Slack Yellow */
     --warning-foreground: 0 0% 0%; /* #000000 */
-    --destructive: 344 82% 50%; /* #E01E5A - Slack Red */
-    --destructive-foreground: 0 0% 100%; /* #FFFFFF */
+    --destructive: 0 84.2% 60.2%; /* #E01E5A - Slack Red */
+    --destructive-foreground: 210 40% 98%; /* #FFFFFF */
 
     /* UI Colors */
-    --accent: 196 89% 57%; /* #36C5F0 - Same as secondary */
-    --accent-foreground: 0 0% 0%;
-    --muted: 240 4% 95%; /* #F8F8F8 */
-    --muted-foreground: 240 4% 38%; /* #616061 */
+    --accent: 210 40% 96.1%; /* #36C5F0 - Same as secondary */
+    --accent-foreground: 222.2 47.4% 11.2%;
+    --muted: 210 40% 96.1%; /* #F8F8F8 */
+    --muted-foreground: 215.4 16.3% 46.9%; /* #616061 */
     --card: 0 0% 100%; /* #FFFFFF */
-    --card-foreground: 240 3% 12%; /* #1D1C1D */
+    --card-foreground: 222.2 84% 4.9%; /* #1D1C1D */
     --popover: 0 0% 100%; /* #FFFFFF */
-    --popover-foreground: 240 3% 12%; /* #1D1C1D */
+    --popover-foreground: 222.2 84% 4.9%; /* #1D1C1D */
 
     /* Interactive Colors */
-    --border: 240 5% 93%; /* #DDDDDD */
-    --input: 240 5% 93%; /* #DDDDDD */
-    --ring: 196 89% 57%; /* #36C5F0 - Slack Blue */
+    --border: 214.3 31.8% 91.4%; /* #DDDDDD */
+    --input: 214.3 31.8% 91.4%; /* #DDDDDD */
+    --ring: 222.2 84% 4.9%; /* #36C5F0 - Slack Blue */
 
     --radius: 0.5rem;
   }
 
   .dark {
     /* Base Colors */
-    --background: 225 6% 13%; /* #1A1D21 */
-    --foreground: 0 0% 95%; /* #D1D2D3 */
+    --background: 222.2 84% 4.9%; /* #1A1D21 */
+    --foreground: 210 40% 98%; /* #D1D2D3 */
 
     /* Slack Brand Colors - Same as light mode */
-    --primary: 299 71% 18%; /* #4A154B */
+    --primary: 210 40% 98%; /* #4A154B */
     --primary-foreground: 0 0% 100%;
-    --secondary: 196 89% 57%; /* #36C5F0 */
-    --secondary-foreground: 0 0% 0%;
+    --secondary: 217.2 32.6% 17.5%; /* #36C5F0 */
+    --secondary-foreground: 210 40% 98%;
     --success: 152 63% 45%; /* #2EB67D */
     --success-foreground: 0 0% 100%;
     --warning: 39 84% 55%; /* #ECB22E */
     --warning-foreground: 0 0% 0%;
-    --destructive: 344 82% 50%; /* #E01E5A */
-    --destructive-foreground: 0 0% 100%;
+    --destructive: 0 62.8% 30.6%; /* #E01E5A */
+    --destructive-foreground: 210 40% 98%;
 
     /* UI Colors - Dark Mode */
-    --accent: 196 89% 57%;
-    --accent-foreground: 0 0% 100%;
-    --muted: 225 6% 13%; /* #222529 */
-    --muted-foreground: 240 4% 67%; /* #ABABAD */
-    --card: 225 6% 13%; /* #222529 */
-    --card-foreground: 0 0% 95%; /* #D1D2D3 */
-    --popover: 225 6% 13%; /* #222529 */
-    --popover-foreground: 0 0% 95%; /* #D1D2D3 */
+    --accent: 217.2 32.6% 17.5%;
+    --accent-foreground: 210 40% 98%;
+    --muted: 217.2 32.6% 17.5%; /* #222529 */
+    --muted-foreground: 215 20.2% 65.1%; /* #ABABAD */
+    --card: 222.2 84% 4.9%; /* #222529 */
+    --card-foreground: 210 40% 98%; /* #D1D2D3 */
+    --popover: 222.2 84% 4.9%; /* #222529 */
+    --popover-foreground: 210 40% 98%; /* #D1D2D3 */
 
     /* Interactive Colors - Dark Mode */
-    --border: 240 4% 26%; /* #424242 */
-    --input: 225 6% 13%; /* #222529 */
-    --ring: 196 89% 57%; /* #36C5F0 */
+    --border: 217.2 32.6% 17.5%; /* #424242 */
+    --input: 217.2 32.6% 17.5%; /* #222529 */
+    --ring: 212.7 26.8% 83.9%; /* #36C5F0 */
   }
 }
 
@@ -176,4 +176,16 @@
   .action-button-text {
     @apply text-[13px] min-w-[1ch] text-center;
   }
+}
+
+.bg-grid-slate-200\/20 {
+  background-image: linear-gradient(to right, rgb(226 232 240 / 0.2) 1px, transparent 1px),
+    linear-gradient(to bottom, rgb(226 232 240 / 0.2) 1px, transparent 1px);
+  background-size: 40px 40px;
+}
+
+.dark .bg-grid-slate-700\/20 {
+  background-image: linear-gradient(to right, rgb(51 65 85 / 0.2) 1px, transparent 1px),
+    linear-gradient(to bottom, rgb(51 65 85 / 0.2) 1px, transparent 1px);
+  background-size: 40px 40px;
 }

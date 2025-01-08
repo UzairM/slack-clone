@@ -17,6 +17,7 @@
     - Use responsive design with a mobile-first approach.
     - Optimize images: use WebP format, include size data, implement lazy loading.
     - Use ; instead of && in terminal commands
+    - Use shadcn@latest in place of shadcn-ui@latest in terminal
 
     ### Error Handling and Validation
     - Prioritize error handling and edge cases:

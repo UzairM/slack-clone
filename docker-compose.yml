@@ -4,50 +4,49 @@ services:
   synapse:
     image: matrixdotorg/synapse:latest
     container_name: synapse
-    environment:
-      - SYNAPSE_SERVER_NAME=chatgenius.local
-      - SYNAPSE_REPORT_STATS=no
-      - POSTGRES_HOST=postgres
-      - POSTGRES_USER=synapse
-      - POSTGRES_PASSWORD=synapse_password
-      - POSTGRES_DB=synapse
-    volumes:
-      - ./synapse/data:/data
     ports:
-      - "8008:8008"
-    depends_on:
-      - postgres
+      - '8008:8008'
+    volumes:
+      - ./docker/synapse:/data
+    environment:
+      SYNAPSE_CONFIG_PATH: /data/homeserver.yaml
     restart: unless-stopped
-    networks:
-      - matrix-network
+    depends_on:
+      postgres:
+        condition: service_healthy
 
   postgres:
-    image: postgres:15-alpine
+    image: postgres:13-alpine
     container_name: synapse-postgres
-    environment:
-      - POSTGRES_USER=synapse
-      - POSTGRES_PASSWORD=synapse_password
-      - POSTGRES_DB=synapse
-    volumes:
-      - ./postgres/data:/var/lib/postgresql/data
     ports:
-      - "5432:5432"
+      - '5432:5432'
+    environment:
+      POSTGRES_USER: synapse
+      POSTGRES_PASSWORD: changeme
+      POSTGRES_DB: template1
+      LANG: C
+      LC_COLLATE: C
+      LC_CTYPE: C
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./docker/postgres:/docker-entrypoint-initdb.d
+    command: postgres -c default_text_search_config='pg_catalog.simple'
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U synapse']
+      interval: 5s
+      timeout: 5s
+      retries: 5
     restart: unless-stopped
-    networks:
-      - matrix-network
 
   redis:
     image: redis:7-alpine
     container_name: chatgenius-redis
-    command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD:-redis_password}
     ports:
-      - "6379:6379"
+      - '6379:6379'
     volumes:
-      - ./redis/data:/data
+      - redis-data:/data
     restart: unless-stopped
-    networks:
-      - matrix-network
 
-networks:
-  matrix-network:
-    driver: bridge
+volumes:
+  postgres-data:
+  redis-data:

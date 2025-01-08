@@ -1,0 +1,51 @@
+server_name: 'localhost'
+pid_file: /data/homeserver.pid
+listeners:
+  - port: 8008
+    tls: false
+    type: http
+    x_forwarded: true
+    resources:
+      - names: [client, federation]
+        compress: false
+
+database:
+  name: psycopg2
+  args:
+    database: synapse
+    user: synapse
+    password: changeme
+    host: postgres
+    cp_min: 5
+    cp_max: 10
+
+log_config: '/data/localhost.log.config'
+media_store_path: /data/media_store
+enable_registration: true
+enable_registration_without_verification: true
+registration_requires_token: false
+report_stats: false
+macaroon_secret_key: 'RANDOMLY_GENERATED_KEY_DO_NOT_SHARE'
+form_secret: 'RANDOMLY_GENERATED_KEY_DO_NOT_SHARE'
+suppress_key_server_warning: true
+
+# Rate limiting configuration
+rc_message:
+  per_second: 100
+  burst_count: 100
+rc_registration:
+  per_second: 10
+  burst_count: 20
+rc_login:
+  address:
+    per_second: 10
+    burst_count: 20
+  account:
+    per_second: 10
+    burst_count: 20
+  failed_attempts:
+    per_second: 10
+    burst_count: 20
+
+trusted_key_servers:
+  - server_name: 'matrix.org'

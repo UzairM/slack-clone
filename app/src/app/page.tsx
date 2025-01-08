@@ -1,59 +1,42 @@
-import { MessageCard } from '@/components/ui/message-card';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import Link from 'next/link';
 
-export default function Home() {
+export default function HomePage() {
   return (
-    <main className="min-h-screen bg-background">
-      <div className="max-w-[1200px] mx-auto px-4 py-6">
-        {/* Header */}
-        <div className="mb-8">
-          <h1 className="text-2xl font-extrabold text-foreground flex items-center gap-2">
-            <span className="message-timestamp">#</span>
-            general
-          </h1>
-          <p className="message-timestamp mt-1 text-[15px]">
-            This channel is for team-wide communication and announcements. All team members are in
-            this channel.
-          </p>
-        </div>
-
-        {/* Messages Section */}
-        <div className="space-y-0.5">
-          <MessageCard
-            avatar="https://github.com/shadcn.png"
-            username="Sarah Johnson"
-            timestamp="12:30 PM"
-            content="Hey team! Just pushed the latest updates to the main branch. Please review when you get a chance! 🚀"
-            replies={3}
-            reactions={5}
-          />
-
-          <MessageCard
-            avatar="https://github.com/shadcn.png"
-            username="Mike Chen"
-            timestamp="12:32 PM"
-            content="Thanks for the update! I'll take a look at it right away."
-            reactions={2}
-          />
-
-          <MessageCard
-            avatar="https://github.com/shadcn.png"
-            username="Alex Turner"
-            timestamp="12:35 PM"
-            content="Great work! The new features look amazing. I especially like the improved navigation system."
-            replies={1}
-            reactions={7}
-          />
-        </div>
-
-        {/* Input Area */}
-        <div className="mt-6 sticky bottom-4">
-          <div className="container-card">
-            <div className="flex items-center gap-2">
-              <input type="text" placeholder="Message #general" className="input-primary flex-1" />
-              <button className="button-primary">Send</button>
-            </div>
-          </div>
-        </div>
+    <main className="min-h-screen w-full bg-gradient-to-br from-indigo-500/10 via-purple-500/10 to-pink-500/10 dark:from-indigo-500/5 dark:via-purple-500/5 dark:to-pink-500/5">
+      <div className="absolute inset-0 bg-grid-slate-200/20 [mask-image:linear-gradient(0deg,white,rgba(255,255,255,0.6))] dark:bg-grid-slate-700/20" />
+      <div className="container relative flex items-center justify-center min-h-screen py-12 px-4">
+        <Card className="w-full max-w-md mx-auto backdrop-blur-[2px] bg-card/80 border-card/20">
+          <CardHeader className="text-center space-y-2">
+            <CardTitle className="text-4xl font-bold bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 bg-clip-text text-transparent">
+              Welcome to ChatGenius
+            </CardTitle>
+            <CardDescription className="text-lg">
+              Your intelligent workplace communication platform
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4 p-6">
+            <Link href="/login" className="block">
+              <Button
+                variant="default"
+                size="lg"
+                className="w-full bg-gradient-to-r from-indigo-500 to-purple-500 hover:from-indigo-600 hover:to-purple-600 transition-all duration-300"
+              >
+                Sign in
+              </Button>
+            </Link>
+            <Link href="/register" className="block">
+              <Button
+                variant="outline"
+                size="lg"
+                className="w-full hover:bg-gradient-to-r hover:from-purple-500/10 hover:to-pink-500/10 transition-all duration-300"
+              >
+                Create account
+              </Button>
+            </Link>
+          </CardContent>
+        </Card>
       </div>
     </main>
   );
