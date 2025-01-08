@@ -1,4 +1,4 @@
-import { useMatrix } from '@/components/providers/matrix-provider';
+import { useMatrix } from '@/hooks/use-matrix';
 import { ClientEvent, MatrixEvent, Preset, Room, RoomEvent, Visibility } from 'matrix-js-sdk';
 import { useCallback, useEffect, useState } from 'react';
 

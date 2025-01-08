@@ -1,4 +1,4 @@
-import { useMatrix } from '@/components/providers/matrix-provider';
+import { useMatrix } from '@/hooks/use-matrix';
 import { convertEventToMessage, Message } from '@/lib/matrix/messages';
 import { useAuthStore } from '@/lib/store/auth-store';
 import {

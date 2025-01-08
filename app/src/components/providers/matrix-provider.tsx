@@ -1,107 +1,54 @@
 'use client';
 
-import { createMatrixClient } from '@/lib/matrix/auth';
+import type { MatrixContextType } from '@/lib/matrix/types';
 import { useAuthStore } from '@/lib/store/auth-store';
-import { ClientEvent, MatrixClient } from 'matrix-js-sdk';
-import { createContext, useContext, useEffect, useState } from 'react';
-import { toast } from 'sonner';
+import type { MatrixClient } from 'matrix-js-sdk';
+import { createClient } from 'matrix-js-sdk';
+import { createContext, useEffect, useState } from 'react';
 
-interface MatrixContextType {
-  client: MatrixClient | null;
-  isInitialized: boolean;
-  error: string | null;
-}
-
-const MatrixContext = createContext<MatrixContextType>({
-  client: null,
-  isInitialized: false,
-  error: null,
-});
+export const MatrixContext = createContext<MatrixContextType | undefined>(undefined);
 
 export function MatrixProvider({ children }: { children: React.ReactNode }) {
   const [client, setClient] = useState<MatrixClient | null>(null);
   const [isInitialized, setIsInitialized] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const { accessToken, userId, isAuthenticated } = useAuthStore();
+  const [error, setError] = useState<Error | null>(null);
+  const { accessToken, userId } = useAuthStore();
 
   useEffect(() => {
-    let mounted = true;
-
-    const initializeClient = async () => {
-      if (!accessToken || !userId || !isAuthenticated) {
-        setClient(null);
-        setIsInitialized(false);
-        setError(null);
+    const initMatrix = async () => {
+      if (!accessToken || !userId || !process.env.NEXT_PUBLIC_MATRIX_SERVER_URL) {
+        setIsInitialized(true);
         return;
       }
 
       try {
-        // Create Matrix client with user ID
-        const matrixClient = createMatrixClient(accessToken, userId);
-
-        // Start the client
-        await matrixClient.startClient({
-          initialSyncLimit: 20, // Limit initial sync to improve performance
+        const matrixClient = createClient({
+          baseUrl: process.env.NEXT_PUBLIC_MATRIX_SERVER_URL,
+          accessToken,
+          userId,
         });
 
-        // Wait for first sync
-        await new Promise<void>((resolve, reject) => {
-          const onSync = (state: string) => {
-            if (state === 'PREPARED') {
-              matrixClient.removeListener(ClientEvent.Sync, onSync);
-              resolve();
-            } else if (state === 'ERROR') {
-              matrixClient.removeListener(ClientEvent.Sync, onSync);
-              reject(new Error('Sync failed'));
-            }
-          };
-
-          matrixClient.once(ClientEvent.Sync, onSync);
-        });
-
-        if (mounted) {
-          setClient(matrixClient);
-          setIsInitialized(true);
-          setError(null);
-        }
-      } catch (err: any) {
-        console.error('Failed to initialize Matrix client:', err);
-        if (mounted) {
-          setError(err.message || 'Failed to initialize Matrix client');
-          toast.error('Failed to connect to chat server');
-        }
+        await matrixClient.startClient({ initialSyncLimit: 10 });
+        setClient(matrixClient);
+        setIsInitialized(true);
+      } catch (err) {
+        setError(err instanceof Error ? err : new Error('Failed to initialize Matrix client'));
+        setIsInitialized(true);
       }
     };
 
-    initializeClient();
+    initMatrix();
 
     return () => {
-      mounted = false;
       if (client) {
         client.stopClient();
-        setClient(null);
-        setIsInitialized(false);
       }
     };
-  }, [accessToken, userId, isAuthenticated]);
+  }, [accessToken, userId]);
 
   return (
-    <MatrixContext.Provider
-      value={{
-        client,
-        isInitialized,
-        error,
-      }}
-    >
+    <MatrixContext.Provider value={{ client, isInitialized, error }}>
       {children}
     </MatrixContext.Provider>
   );
-}
-
-export function useMatrix() {
-  const context = useContext(MatrixContext);
-  if (!context) {
-    throw new Error('useMatrix must be used within a MatrixProvider');
-  }
-  return context;
 }
