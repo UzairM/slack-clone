@@ -14,12 +14,6 @@ export default function SettingsLayout({ children }: { children: React.ReactNode
           </Link>
           <nav className="space-y-2">
             <Link
-              href="/settings/profile"
-              className="block p-2 rounded-lg hover:bg-muted transition-colors"
-            >
-              Profile Settings
-            </Link>
-            <Link
               href="/settings/account"
               className="block p-2 rounded-lg hover:bg-muted transition-colors"
             >

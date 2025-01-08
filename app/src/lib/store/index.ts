@@ -1,3 +1,2 @@
-export * from './channel-store';
+export * from './auth-store';
 export * from './ui-store';
-export * from './user-store';

@@ -21,31 +21,44 @@ database:
 
 log_config: '/data/localhost.log.config'
 media_store_path: /data/media_store
+
+# Registration settings
 enable_registration: true
 enable_registration_without_verification: true
 registration_requires_token: false
+verify_registration_requests_by_email: false
+allow_guest_access: false
 report_stats: false
-macaroon_secret_key: 'RANDOMLY_GENERATED_KEY_DO_NOT_SHARE'
-form_secret: 'RANDOMLY_GENERATED_KEY_DO_NOT_SHARE'
+disable_registration_emails: true
+enable_3pid_lookup: false
+
+# Security settings
+macaroon_secret_key: 'generate_a_secure_random_key_here'
+form_secret: 'generate_another_secure_random_key_here'
+registration_shared_secret: 'generate_yet_another_secure_random_key_here'
+
+# Federation settings
+federation_domain_whitelist:
+  - 'matrix.org'
 suppress_key_server_warning: true
 
 # Rate limiting configuration
 rc_message:
-  per_second: 100
-  burst_count: 100
+  per_second: 0.2
+  burst_count: 10
 rc_registration:
-  per_second: 10
-  burst_count: 20
+  per_second: 0.17
+  burst_count: 3
 rc_login:
   address:
-    per_second: 10
-    burst_count: 20
+    per_second: 0.17
+    burst_count: 3
   account:
-    per_second: 10
-    burst_count: 20
+    per_second: 0.17
+    burst_count: 3
   failed_attempts:
-    per_second: 10
-    burst_count: 20
+    per_second: 0.17
+    burst_count: 3
 
 trusted_key_servers:
   - server_name: 'matrix.org'

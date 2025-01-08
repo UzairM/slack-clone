@@ -1,0 +1,14 @@
+email:
+  smtp_host: smtp.protonmail.ch
+  smtp_port: 587
+  smtp_user: 'uzair.mahmud@gauntletai.com' # Replace with your Gmail address
+  smtp_pass: 'TU66JP1HX6R2TN6E' # Replace with your Gmail app password
+  require_transport_security: true
+  notif_from: 'Your Server <%s>' # The %s will be replaced with the server domain
+  app_name: ChatGenius
+  enable_notifs: true
+  notif_for_new_users: true
+  client_base_url: 'http://localhost:3000' # Replace with your frontend URL
+  validation_token_lifetime: 24h
+  invite_token_lifetime: 24h
+  password_reset_token_lifetime: 24h

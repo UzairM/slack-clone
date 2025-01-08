@@ -3,11 +3,11 @@ import { NextResponse } from 'next/server';
 import { isSessionExpired, sessionSchema } from './lib/matrix/session';
 
 // Add paths that require authentication
-const protectedPaths = ['/chat', '/settings'];
-// Add paths that should redirect to chat if already authenticated
-const authPaths = ['/login', '/register'];
+const protectedPaths = ['/settings'];
+// Add paths that should redirect to home if already authenticated
+const authPaths = ['/login', '/register', '/reset-password'];
 // Add paths that require CSRF protection
-const mutatingPaths = ['/api/chat', '/api/settings'];
+const mutatingPaths = ['/api/settings'];
 
 // Generate CSRF token
 const generateCsrfToken = () => {
@@ -69,9 +69,9 @@ export function middleware(request: NextRequest) {
       return NextResponse.redirect(redirectUrl);
     }
 
-    // Redirect to chat if accessing auth paths while authenticated
+    // Redirect to home if accessing auth paths while authenticated
     if (isAuthPath && isAuthenticated) {
-      return NextResponse.redirect(new URL('/chat', request.url));
+      return NextResponse.redirect(new URL('/', request.url));
     }
 
     return response;

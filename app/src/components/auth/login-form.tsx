@@ -17,8 +17,8 @@ import {
   FormMessage,
 } from '@/components/ui/form';
 import { Input } from '@/components/ui/input';
-import { LoginData, loginSchema, loginUser } from '@/lib/matrix/auth';
-import { useAuthStore } from '@/lib/store/auth-store';
+import { useMatrixAuth } from '@/hooks/use-matrix-auth';
+import { LoginData, loginSchema } from '@/lib/matrix/auth';
 import { zodResolver } from '@hookform/resolvers/zod';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
@@ -31,17 +31,15 @@ export function LoginForm() {
   const [isLoading, setIsLoading] = useState(false);
   const router = useRouter();
   const searchParams = useSearchParams();
-  const setSession = useAuthStore(state => state.setSession);
-  const isAuthenticated = useAuthStore(state => state.isAuthenticated);
-  const isHydrated = useAuthStore(state => state.isHydrated);
+  const { login, isAuthenticated } = useMatrixAuth();
 
   // Redirect if already authenticated
   useEffect(() => {
-    if (isAuthenticated && isHydrated) {
+    if (isAuthenticated) {
       const from = searchParams.get('from');
-      router.replace(from || '/chat');
+      router.replace(from || '/');
     }
-  }, [isAuthenticated, isHydrated, router, searchParams]);
+  }, [isAuthenticated, router, searchParams]);
 
   const form = useForm<LoginData>({
     resolver: zodResolver(loginSchema),
@@ -56,15 +54,12 @@ export function LoginForm() {
       setIsLoading(true);
       setError(null);
 
-      const result = await loginUser(data);
+      const result = await login(data.username, data.password);
 
-      if (result.success && result.data) {
-        // Store session in auth store with device ID
-        setSession(result.data.access_token, result.data.user_id, result.data.device_id);
-
-        // Force a hard navigation to the chat page
+      if (result.success) {
+        // Force a hard navigation to the home page
         const from = searchParams.get('from');
-        window.location.href = from || '/chat';
+        window.location.href = from || '/';
       } else {
         setError(result.error || 'Login failed');
       }

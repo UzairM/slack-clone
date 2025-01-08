@@ -19,43 +19,44 @@ import {
   FormMessage,
 } from '@/components/ui/form';
 import { Input } from '@/components/ui/input';
-import {
-  registerUser,
-  RegistrationData,
-  RegistrationError,
-  registrationSchema,
-} from '@/lib/matrix/auth';
-import { useAuthStore } from '@/lib/store/auth-store';
+import { Separator } from '@/components/ui/separator';
+import { useMatrixAuth } from '@/hooks/use-matrix-auth';
+import { RegistrationData, registrationSchema } from '@/lib/matrix/auth';
 import { zodResolver } from '@hookform/resolvers/zod';
+import { Eye, EyeOff, Loader2 } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import { useForm } from 'react-hook-form';
+import { toast } from 'sonner';
 
 export function RegisterForm() {
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const router = useRouter();
   const searchParams = useSearchParams();
-  const setSession = useAuthStore(state => state.setSession);
-  const isAuthenticated = useAuthStore(state => state.isAuthenticated);
-  const isHydrated = useAuthStore(state => state.isHydrated);
+  const { register, isAuthenticated } = useMatrixAuth();
 
   // Redirect if already authenticated
   useEffect(() => {
-    if (isAuthenticated && isHydrated) {
+    if (isAuthenticated) {
       const from = searchParams.get('from');
-      router.replace(from || '/chat');
+      router.replace(from || '/');
     }
-  }, [isAuthenticated, isHydrated, router, searchParams]);
+  }, [isAuthenticated, router, searchParams]);
 
   const form = useForm<RegistrationData>({
     resolver: zodResolver(registrationSchema),
     defaultValues: {
       username: '',
       password: '',
+      confirmPassword: '',
       email: '',
+      initialDeviceDisplayName: `Web Client (${navigator.userAgent})`,
     },
+    mode: 'onChange',
   });
 
   const onSubmit = async (data: RegistrationData) => {
@@ -63,25 +64,22 @@ export function RegisterForm() {
       setIsLoading(true);
       setError(null);
 
-      const result = await registerUser(data);
+      // Register with Matrix
+      const result = await register(data.username, data.password, data.email || undefined, {
+        initialDeviceDisplayName: data.initialDeviceDisplayName,
+      });
 
       if (result.success) {
-        // Set session with device ID
-        setSession(result.data.access_token || '', result.data.user_id, result.data.device_id);
-
-        // Force a hard navigation to the chat page
+        toast.success('Account created successfully');
+        // Force a hard navigation to the home page
         const from = searchParams.get('from');
-        window.location.href = from || '/chat';
-      } else if ('requiresAuth' in result && result.requiresAuth) {
-        // Handle interactive auth if needed
-        setError('Additional authentication required');
+        window.location.href = from || '/';
       } else {
-        const errorResult = result as RegistrationError;
-        setError(errorResult.error);
+        setError(result.error || 'Registration failed');
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error('Registration error:', err);
-      setError('An unexpected error occurred');
+      setError(err.message || 'An unexpected error occurred');
     } finally {
       setIsLoading(false);
     }
@@ -93,9 +91,7 @@ export function RegisterForm() {
         <CardTitle className="text-4xl font-bold bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 bg-clip-text text-transparent">
           Create Account
         </CardTitle>
-        <CardDescription className="text-lg">
-          Join ChatGenius to start collaborating
-        </CardDescription>
+        <CardDescription className="text-lg">Join to start chatting</CardDescription>
       </CardHeader>
       <CardContent>
         <Form {...form}>
@@ -107,7 +103,12 @@ export function RegisterForm() {
                 <FormItem>
                   <FormLabel>Username</FormLabel>
                   <FormControl>
-                    <Input placeholder="johndoe" {...field} />
+                    <Input
+                      placeholder="johndoe"
+                      {...field}
+                      autoComplete="username"
+                      disabled={isLoading}
+                    />
                   </FormControl>
                   <FormMessage />
                 </FormItem>
@@ -121,7 +122,13 @@ export function RegisterForm() {
                 <FormItem>
                   <FormLabel>Email (optional)</FormLabel>
                   <FormControl>
-                    <Input type="email" placeholder="john@example.com" {...field} />
+                    <Input
+                      type="email"
+                      placeholder="john@example.com"
+                      {...field}
+                      autoComplete="email"
+                      disabled={isLoading}
+                    />
                   </FormControl>
                   <FormMessage />
                 </FormItem>
@@ -135,7 +142,89 @@ export function RegisterForm() {
                 <FormItem>
                   <FormLabel>Password</FormLabel>
                   <FormControl>
-                    <Input type="password" {...field} />
+                    <div className="relative">
+                      <Input
+                        type={showPassword ? 'text' : 'password'}
+                        {...field}
+                        autoComplete="new-password"
+                        disabled={isLoading}
+                        className="pr-10"
+                      />
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className="absolute right-0 top-0 h-full px-3 py-2 hover:bg-transparent"
+                        onClick={() => setShowPassword(!showPassword)}
+                        disabled={isLoading}
+                      >
+                        {showPassword ? (
+                          <EyeOff className="h-4 w-4 text-muted-foreground" />
+                        ) : (
+                          <Eye className="h-4 w-4 text-muted-foreground" />
+                        )}
+                      </Button>
+                    </div>
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
+            <FormField
+              control={form.control}
+              name="confirmPassword"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Confirm Password</FormLabel>
+                  <FormControl>
+                    <div className="relative">
+                      <Input
+                        type={showConfirmPassword ? 'text' : 'password'}
+                        {...field}
+                        autoComplete="new-password"
+                        disabled={isLoading}
+                        className="pr-10"
+                      />
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className="absolute right-0 top-0 h-full px-3 py-2 hover:bg-transparent"
+                        onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                        disabled={isLoading}
+                      >
+                        {showConfirmPassword ? (
+                          <EyeOff className="h-4 w-4 text-muted-foreground" />
+                        ) : (
+                          <Eye className="h-4 w-4 text-muted-foreground" />
+                        )}
+                      </Button>
+                    </div>
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
+            <FormField
+              control={form.control}
+              name="initialDeviceDisplayName"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Device Name</FormLabel>
+                  <FormControl>
+                    <div className="relative">
+                      <Input
+                        placeholder="My Device"
+                        {...field}
+                        disabled={isLoading}
+                        maxLength={100}
+                      />
+                      <div className="absolute right-2 top-2 text-xs text-muted-foreground">
+                        {field.value?.length || 0}/100
+                      </div>
+                    </div>
                   </FormControl>
                   <FormMessage />
                 </FormItem>
@@ -153,11 +242,19 @@ export function RegisterForm() {
               className="w-full bg-gradient-to-r from-indigo-500 to-purple-500 hover:from-indigo-600 hover:to-purple-600 text-white transition-all duration-300"
               disabled={isLoading}
             >
-              {isLoading ? 'Creating account...' : 'Create account'}
+              {isLoading ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Creating account...
+                </>
+              ) : (
+                'Create account'
+              )}
             </Button>
           </form>
         </Form>
       </CardContent>
+      <Separator className="my-4" />
       <CardFooter className="flex flex-col space-y-4">
         <div className="text-sm text-muted-foreground text-center">
           Already have an account?{' '}

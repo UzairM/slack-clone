@@ -1,6 +1,6 @@
 import { LogoutButton } from '@/components/auth/logout-button';
 import { Button } from '@/components/ui/button';
-import { MessageSquare, Settings, User } from 'lucide-react';
+import { Settings } from 'lucide-react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 
@@ -21,26 +21,6 @@ export function ProtectedLayout({ children }: ProtectedLayoutProps) {
           </div>
 
           <div className="flex items-center gap-2">
-            <Button
-              variant="ghost"
-              size="icon"
-              className={`hover:bg-muted transition-colors ${pathname === '/chat' ? 'bg-muted' : ''}`}
-              asChild
-            >
-              <Link href="/chat" title="Chat">
-                <MessageSquare className="h-4 w-4" />
-              </Link>
-            </Button>
-            <Button
-              variant="ghost"
-              size="icon"
-              className={`hover:bg-muted transition-colors ${pathname === '/profile' ? 'bg-muted' : ''}`}
-              asChild
-            >
-              <Link href="/profile" title="Profile">
-                <User className="h-4 w-4" />
-              </Link>
-            </Button>
             <Button
               variant="ghost"
               size="icon"

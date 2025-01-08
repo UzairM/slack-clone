@@ -3,12 +3,57 @@ import { z } from 'zod';
 
 const MATRIX_SERVER_URL = process.env.NEXT_PUBLIC_MATRIX_SERVER_URL || 'http://localhost:8008';
 
-// Schema for registration data
-export const registrationSchema = z.object({
-  username: z.string().min(3).max(50),
-  password: z.string().min(8),
-  email: z.string().email().optional(),
-});
+// Username validation rules
+const usernameRegex = /^[a-z0-9._=\-/]+$/;
+const reservedUsernames = ['admin', 'system', 'support', 'moderator', 'mod'];
+
+// Password validation rules
+const passwordMinLength = 8;
+const passwordRegex = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]/;
+
+// Additional validation rules
+const commonPasswords = [
+  'password',
+  '123456',
+  'qwerty',
+  'letmein',
+  'admin',
+  'welcome',
+  'monkey',
+  'dragon',
+];
+
+const usernameReservedPrefixes = ['admin_', 'mod_', 'system_', 'support_'];
+const usernameReservedSuffixes = ['_admin', '_mod', '_system', '_support'];
+
+// Enhanced registration schema
+export const registrationSchema = z
+  .object({
+    username: z
+      .string()
+      .min(1, 'Username is required')
+      .max(255, 'Username is too long')
+      .regex(
+        usernameRegex,
+        'Username can only contain lowercase letters, numbers, dots, equals signs, hyphens, and forward slashes'
+      ),
+
+    password: z.string().min(1, 'Password is required'),
+
+    confirmPassword: z.string(),
+
+    email: z.string().email('Please enter a valid email address').optional().or(z.literal('')),
+
+    initialDeviceDisplayName: z
+      .string()
+      .max(100, 'Device name cannot exceed 100 characters')
+      .optional()
+      .transform(val => val || `Web Client (${new Date().toISOString()})`),
+  })
+  .refine(data => data.password === data.confirmPassword, {
+    message: 'Passwords do not match',
+    path: ['confirmPassword'],
+  });
 
 export type RegistrationData = z.infer<typeof registrationSchema>;
 
