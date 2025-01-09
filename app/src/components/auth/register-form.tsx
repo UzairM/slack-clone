@@ -71,9 +71,8 @@ export function RegisterForm() {
 
       if (result.success) {
         toast.success('Account created successfully');
-        // Force a hard navigation to the home page
-        const from = searchParams.get('from');
-        window.location.href = from || '/';
+        // Redirect to login page
+        window.location.href = '/login';
       } else {
         setError(result.error || 'Registration failed');
       }

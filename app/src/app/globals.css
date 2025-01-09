@@ -5,70 +5,82 @@
 @layer base {
   :root {
     /* Base Colors */
-    --background: 0 0% 100%; /* #FFFFFF */
-    --foreground: 222.2 84% 4.9%; /* #1D1C1D */
+    --background: 213 67% 96%; /* Lighter blue-tinted background */
+    --foreground: 0 0% 10%; /* Near black for text */
 
-    /* Slack Brand Colors */
-    --primary: 235 85% 65%; /* Updated for better contrast */
-    --primary-foreground: 0 0% 100%;
-    --secondary: 210 40% 96.1%;
-    --secondary-foreground: 222.2 47.4% 11.2%;
-    --success: 142 76% 36%; /* Darker green for better contrast */
-    --success-foreground: 0 0% 100%;
-    --warning: 38 92% 50%; /* Adjusted yellow */
-    --warning-foreground: 0 0% 0%;
-    --destructive: 0 84% 60%; /* Adjusted red */
-    --destructive-foreground: 0 0% 100%;
+    /* Primary Colors */
+    --primary: 215 80% 58%; /* #3B8BEB - Blue */
+    --primary-foreground: 39 14% 93%;
+
+    /* Secondary Colors */
+    --secondary: 213 67% 86%; /* #C4DBF6 - Light Blue */
+    --secondary-foreground: 0 0% 10%;
+
+    /* Accent Colors */
+    --accent: 349 54% 42%; /* #B23850 - Red */
+    --accent-foreground: 39 14% 93%;
 
     /* UI Colors */
-    --accent: 210 40% 90%; /* Lighter for better contrast */
-    --accent-foreground: 222.2 47.4% 11.2%;
-    --muted: 210 40% 96.1%;
-    --muted-foreground: 215.4 16.3% 46.9%;
+    --muted: 0 0% 15%; /* Dark for muted elements */
+    --muted-foreground: 215 80% 58%;
     --card: 0 0% 100%;
-    --card-foreground: 222.2 84% 4.9%;
+    --card-foreground: 0 0% 10%;
     --popover: 0 0% 100%;
-    --popover-foreground: 222.2 84% 4.9%;
+    --popover-foreground: 0 0% 10%;
 
-    /* Interactive Colors */
-    --border: 214.3 31.8% 91.4%;
-    --input: 214.3 31.8% 91.4%;
-    --ring: 235 85% 65%; /* Matching primary */
+    /* Interactive Elements */
+    --border: 213 67% 86%;
+    --input: 213 67% 86%;
+    --ring: 215 80% 58%;
+
+    /* Status Colors */
+    --success: 142 72% 45%;
+    --success-foreground: 39 14% 93%;
+    --warning: 38 92% 50%;
+    --warning-foreground: 0 0% 10%;
+    --destructive: 349 54% 42%;
+    --destructive-foreground: 39 14% 93%;
 
     --radius: 0.5rem;
   }
 
   .dark {
     /* Base Colors */
-    --background: 222.2 84% 4.9%;
-    --foreground: 210 40% 98%;
+    --background: 0 0% 7%; /* Very dark background */
+    --foreground: 39 14% 93%;
 
-    /* Slack Brand Colors */
-    --primary: 235 85% 65%; /* Same as light for consistency */
-    --primary-foreground: 0 0% 100%;
-    --secondary: 217.2 32.6% 17.5%;
-    --secondary-foreground: 210 40% 98%;
-    --success: 142 76% 36%;
-    --success-foreground: 0 0% 100%;
+    /* Primary Colors */
+    --primary: 215 80% 58%; /* #3B8BEB - Blue */
+    --primary-foreground: 39 14% 93%;
+
+    /* Secondary Colors */
+    --secondary: 213 67% 86%; /* #C4DBF6 - Light Blue */
+    --secondary-foreground: 0 0% 10%;
+
+    /* Accent Colors */
+    --accent: 349 54% 42%; /* #B23850 - Red */
+    --accent-foreground: 39 14% 93%;
+
+    /* UI Colors */
+    --muted: 0 0% 12%;
+    --muted-foreground: 213 67% 86%;
+    --card: 0 0% 9%;
+    --card-foreground: 39 14% 93%;
+    --popover: 0 0% 9%;
+    --popover-foreground: 39 14% 93%;
+
+    /* Interactive Elements */
+    --border: 0 0% 12%;
+    --input: 0 0% 12%;
+    --ring: 215 80% 58%;
+
+    /* Status Colors */
+    --success: 142 72% 45%;
+    --success-foreground: 39 14% 93%;
     --warning: 38 92% 50%;
-    --warning-foreground: 0 0% 0%;
-    --destructive: 0 84% 60%;
-    --destructive-foreground: 0 0% 100%;
-
-    /* UI Colors - Dark Mode */
-    --accent: 215 25% 27%; /* Darker for better contrast in dark mode */
-    --accent-foreground: 210 40% 98%;
-    --muted: 217.2 32.6% 17.5%;
-    --muted-foreground: 215 20.2% 65.1%;
-    --card: 222.2 84% 4.9%;
-    --card-foreground: 210 40% 98%;
-    --popover: 222.2 84% 4.9%;
-    --popover-foreground: 210 40% 98%;
-
-    /* Interactive Colors - Dark Mode */
-    --border: 217.2 32.6% 17.5%;
-    --input: 217.2 32.6% 17.5%;
-    --ring: 235 85% 65%;
+    --warning-foreground: 0 0% 10%;
+    --destructive: 349 54% 42%;
+    --destructive-foreground: 39 14% 93%;
   }
 }
 
@@ -80,31 +92,93 @@
   body {
     @apply bg-background text-foreground antialiased;
   }
+
+  /* Modern background with gradient and noise */
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.65' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)'/%3E%3C/svg%3E"),
+      linear-gradient(to bottom right, hsl(215, 80%, 96%), hsl(213, 67%, 91%));
+    background-size:
+      200px 200px,
+      100% 100%;
+    background-repeat: repeat, no-repeat;
+    opacity: 0.4;
+    z-index: -1;
+    pointer-events: none;
+  }
+
+  .dark body::before {
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.65' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)'/%3E%3C/svg%3E"),
+      linear-gradient(to bottom right, hsl(215, 80%, 8%), hsl(213, 67%, 4%));
+    opacity: 0.2;
+  }
 }
 
-/* Button Overrides */
+/* Modern Button Styles */
 .button-base {
-  @apply font-medium transition-colors duration-200 select-none;
+  @apply font-medium transition-all duration-200 select-none rounded-[var(--radius)];
   @apply focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2;
+  @apply active:scale-[0.98];
 }
 
 .button-primary {
-  @apply button-base bg-primary text-primary-foreground hover:bg-primary/90;
-}
-
-.button-outline {
-  @apply button-base border border-input bg-background text-foreground hover:bg-accent hover:text-accent-foreground;
+  @apply button-base bg-primary text-primary-foreground;
+  @apply hover:bg-primary/90 hover:shadow-md;
+  @apply active:bg-primary/95;
 }
 
 .button-secondary {
-  @apply button-base bg-secondary text-secondary-foreground hover:bg-secondary/80;
+  @apply button-base bg-secondary text-secondary-foreground;
+  @apply hover:bg-secondary/80 hover:shadow-sm;
+  @apply active:bg-secondary/85;
 }
 
-/* Tooltip Overrides */
-.tooltip {
-  @apply bg-popover text-popover-foreground shadow-lg rounded-md px-3 py-1.5;
+.button-accent {
+  @apply button-base bg-accent text-accent-foreground;
+  @apply hover:bg-accent/90 hover:shadow-md;
+  @apply active:bg-accent/95;
+}
+
+.button-outline {
+  @apply button-base border border-input bg-background text-foreground;
+  @apply hover:bg-accent hover:text-accent-foreground hover:shadow-sm;
+  @apply active:bg-accent/90;
+}
+
+/* Card Styles */
+.card-hover {
+  @apply transition-all duration-200;
+  @apply hover:shadow-md hover:scale-[1.01];
+  @apply active:scale-[1];
   @apply border border-border/50;
-  @apply text-sm font-medium;
+  @apply backdrop-blur-sm;
 }
 
-/* Rest of your existing styles... */
+/* Input Styles */
+.input-modern {
+  @apply rounded-[var(--radius)] border border-input bg-background/80;
+  @apply focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring focus-visible:border-primary;
+  @apply placeholder:text-muted-foreground;
+  @apply backdrop-blur-sm;
+}
+
+/* Gradient Text */
+.gradient-text {
+  @apply bg-gradient-to-r from-[#3B8BEB] via-[#C4DBF6] to-[#B23850] bg-clip-text text-transparent;
+  @apply animate-gradient bg-[length:200%_auto];
+}
+
+@keyframes gradient {
+  0% {
+    background-position: 0% center;
+  }
+  100% {
+    background-position: -200% center;
+  }
+}
+
+.animate-gradient {
+  animation: gradient 8s linear infinite;
+}

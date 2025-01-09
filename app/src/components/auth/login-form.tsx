@@ -57,9 +57,9 @@ export function LoginForm() {
       const result = await login(data.username, data.password);
 
       if (result.success) {
-        // Force a hard navigation to the home page
+        // Force a hard navigation to the chat page
         const from = searchParams.get('from');
-        window.location.href = from || '/';
+        window.location.href = from || '/chat';
       } else {
         setError(result.error || 'Login failed');
       }
