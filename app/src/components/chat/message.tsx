@@ -8,10 +8,11 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+import { useMatrix } from '@/hooks/use-matrix';
 import { cn } from '@/lib/utils';
 import { formatDistanceToNow } from 'date-fns';
-import { Check, Loader2, MessageSquare, MoreHorizontal, Pencil, Trash } from 'lucide-react';
-import { useState } from 'react';
+import { Loader2, MessageSquare, MoreHorizontal, Pencil, Trash } from 'lucide-react';
+import { useEffect, useState } from 'react';
 import { Textarea } from '../ui/textarea';
 import { AudioMessage } from './audio-message';
 import { EmoteMessage } from './emote-message';
@@ -111,10 +112,67 @@ export function Message({
   replyTo,
   onThreadClick,
 }: MessageProps) {
+  const { client } = useMatrix();
   const [editContent, setEditContent] = useState(content);
   const [isDeleting, setIsDeleting] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [showEditHistory, setShowEditHistory] = useState(false);
+  const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
+  const [displayName, setDisplayName] = useState<string>(sender);
+
+  // Get user avatar and display name
+  useEffect(() => {
+    if (!client) return;
+
+    const getMemberInfo = async () => {
+      try {
+        // Try to get member from rooms
+        let memberAvatar: string | null = null;
+        let memberName = sender;
+
+        // Check all rooms for this user
+        for (const room of client.getRooms()) {
+          const member = room.getMember(sender);
+          if (member) {
+            memberName = member.name || member.rawDisplayName || sender;
+            const url = member.getAvatarUrl(client.baseUrl, 96, 96, 'crop', false, false);
+            if (url) {
+              memberAvatar = url;
+              break;
+            }
+          }
+        }
+
+        // If no avatar found in rooms, try user profile
+        if (!memberAvatar) {
+          const profile = await client.getProfileInfo(sender);
+          if (profile.avatar_url) {
+            memberAvatar = client.mxcUrlToHttp(profile.avatar_url, 96, 96, 'crop') || null;
+          }
+          if (profile.displayname) {
+            memberName = profile.displayname;
+          }
+        }
+
+        // If still no avatar, use Dicebear
+        if (!memberAvatar) {
+          memberAvatar = `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(sender)}`;
+        }
+
+        setAvatarUrl(memberAvatar);
+        setDisplayName(memberName || sender.slice(1).split(':')[0]);
+      } catch (error) {
+        console.error('Failed to get member info:', error);
+        // Fall back to user ID without server part and Dicebear
+        setDisplayName(sender.slice(1).split(':')[0]);
+        setAvatarUrl(
+          `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(sender)}`
+        );
+      }
+    };
+
+    getMemberInfo();
+  }, [client, sender]);
 
   // Handle edit submit
   const handleEditSubmit = async () => {
@@ -268,76 +326,81 @@ export function Message({
   };
 
   return (
-    <div className={cn('group relative flex gap-3 px-4 py-2 hover:bg-muted/50', className)}>
-      <Avatar className="h-8 w-8">
-        <AvatarImage src={`https://api.dicebear.com/7.x/avataaars/svg?seed=${sender}`} />
-        <AvatarFallback>{sender[0]?.toUpperCase()}</AvatarFallback>
-      </Avatar>
+    <div
+      className={cn(
+        'group relative flex gap-3 px-4 py-3 transition-colors hover:bg-muted/30',
+        'first:pt-4 last:pb-4',
+        className
+      )}
+    >
+      <div className="relative">
+        <Avatar className="h-8 w-8 ring-2 ring-background">
+          <AvatarImage src={avatarUrl || undefined} />
+          <AvatarFallback>{displayName.slice(0, 2).toUpperCase()}</AvatarFallback>
+        </Avatar>
+      </div>
 
-      <div className="flex-1 space-y-1">
+      <div className="flex-1 space-y-1 overflow-hidden">
         <div className="flex items-center gap-2">
-          <span className="text-sm font-semibold">{sender}</span>
-          <span className="text-xs text-muted-foreground">
+          <span className="text-sm font-semibold hover:underline cursor-pointer">
+            {displayName}
+          </span>
+          <span className="text-[10px] font-medium text-muted-foreground">
             {formatDistanceToNow(timestamp, { addSuffix: true })}
           </span>
-          <span className="ml-auto flex items-center gap-1 text-xs text-muted-foreground">
-            {status === 'sending' && (
-              <>
-                <Loader2 className="h-3 w-3 animate-spin" />
-                Sending
-              </>
-            )}
-            {status === 'sent' && (
-              <>
-                <Check className="h-3 w-3" />
-                Sent
-              </>
-            )}
-            {status === 'delivered' && (
-              <>
-                <Check className="h-3 w-3" />
-                <Check className="h-3 w-3" />
-                Delivered
-              </>
-            )}
-            {status === 'read' && (
-              <>
-                <Check className="h-3 w-3 text-blue-500" />
-                <Check className="h-3 w-3 text-blue-500" />
-                Read
-              </>
-            )}
-            {status === 'error' && (
-              <span className="text-destructive" title={error}>
-                Failed to send
-              </span>
-            )}
-          </span>
+          {status === 'error' && (
+            <span className="text-xs font-medium text-destructive" title={error}>
+              Failed to send
+            </span>
+          )}
+          {status === 'sending' && (
+            <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" />
+          )}
         </div>
 
         {/* Reply reference */}
         {replyTo && (
-          <div className="mb-1 flex items-center gap-2 rounded-md bg-muted/50 px-3 py-2 text-sm text-muted-foreground">
-            <span className="truncate">
+          <div className="mb-1 flex items-center gap-2 rounded-md bg-muted/50 px-3 py-1.5 text-sm text-muted-foreground">
+            <div className="truncate">
               <span className="font-medium">{replyTo.sender}</span>: {replyTo.content}
-            </span>
+            </div>
           </div>
         )}
 
-        {renderContent()}
+        <div className="relative">
+          {renderContent()}
+
+          {/* Edit history */}
+          {isEdited && (
+            <div className="mt-0.5 flex items-center gap-1 text-[10px] text-muted-foreground">
+              <button
+                onClick={() => setShowEditHistory(!showEditHistory)}
+                className="hover:underline focus:outline-none"
+              >
+                edited {formatDistanceToNow(editedTimestamp || 0, { addSuffix: true })}
+              </button>
+            </div>
+          )}
+          {showEditHistory && originalContent && (
+            <div className="mt-2 rounded-md border bg-muted/30 p-2 text-xs text-muted-foreground">
+              <div className="font-medium">Original message:</div>
+              <p className="mt-1 whitespace-pre-wrap">{originalContent}</p>
+            </div>
+          )}
+        </div>
 
         {/* Thread preview */}
         {isThreadRoot && thread && (
           <button
             onClick={() => onThreadClick?.(id)}
-            className="mt-2 flex items-center gap-2 rounded-md bg-muted/50 px-3 py-2 text-sm hover:bg-muted"
+            className="mt-2 flex w-full items-center gap-2 rounded-md bg-muted/30 px-3 py-2 text-sm transition-colors hover:bg-muted/50"
           >
             <div className="flex-1">
               {thread.latestReply ? (
                 <div className="flex flex-col gap-1">
                   <div className="flex items-center gap-2">
                     <span className="font-medium">{thread.latestReply.sender}</span>
-                    <span className="text-xs text-muted-foreground">
+                    <span className="text-[10px] text-muted-foreground">
                       {formatDistanceToNow(thread.latestReply.timestamp, { addSuffix: true })}
                     </span>
                   </div>
@@ -347,46 +410,47 @@ export function Message({
               <p className="mt-1 text-xs font-medium text-muted-foreground">
                 {thread.replyCount} {thread.replyCount === 1 ? 'reply' : 'replies'}
                 {thread.isUnread && (
-                  <span className="ml-2 inline-flex h-2 w-2 rounded-full bg-blue-500" />
+                  <span className="ml-2 inline-flex h-2 w-2 rounded-full bg-primary" />
                 )}
               </p>
             </div>
           </button>
         )}
 
-        {/* Add reactions */}
+        {/* Message reactions */}
         {onAddReaction && onRemoveReaction && (
           <MessageReactions
             messageId={id}
             reactions={reactions}
             onAddReaction={onAddReaction}
             onRemoveReaction={onRemoveReaction}
-            className="mt-2"
+            className="mt-1.5"
           />
         )}
       </div>
 
+      {/* Message actions */}
       {!isEditing && (onEdit || onDelete) && (
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button
               variant="ghost"
               size="icon"
-              className="absolute right-4 top-2 hidden h-8 w-8 group-hover:flex"
+              className="absolute right-4 top-2 hidden h-7 w-7 rounded-full opacity-0 transition-opacity group-hover:flex group-hover:opacity-100"
             >
               <MoreHorizontal className="h-4 w-4" />
             </Button>
           </DropdownMenuTrigger>
-          <DropdownMenuContent align="end">
+          <DropdownMenuContent align="end" className="w-32">
             {onEdit && (
-              <DropdownMenuItem onClick={() => onStartEdit?.(id)}>
-                <Pencil className="mr-2 h-4 w-4" />
+              <DropdownMenuItem onClick={() => onStartEdit?.(id)} className="gap-2">
+                <Pencil className="h-4 w-4" />
                 Edit
               </DropdownMenuItem>
             )}
             {!isThreadRoot && onThreadClick && (
-              <DropdownMenuItem onClick={() => onThreadClick(threadId || id)}>
-                <MessageSquare className="mr-2 h-4 w-4" />
+              <DropdownMenuItem onClick={() => onThreadClick(threadId || id)} className="gap-2">
+                <MessageSquare className="h-4 w-4" />
                 {threadId ? 'View Thread' : 'Start Thread'}
               </DropdownMenuItem>
             )}
@@ -394,12 +458,12 @@ export function Message({
               <DropdownMenuItem
                 onClick={handleDelete}
                 disabled={isDeleting}
-                className="text-destructive focus:bg-destructive focus:text-destructive-foreground"
+                className="gap-2 text-destructive focus:bg-destructive focus:text-destructive-foreground"
               >
                 {isDeleting ? (
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  <Loader2 className="h-4 w-4 animate-spin" />
                 ) : (
-                  <Trash className="mr-2 h-4 w-4" />
+                  <Trash className="h-4 w-4" />
                 )}
                 {isDeleting ? 'Deleting...' : 'Delete'}
               </DropdownMenuItem>

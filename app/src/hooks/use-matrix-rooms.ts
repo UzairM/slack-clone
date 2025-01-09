@@ -45,13 +45,16 @@ export function useMatrixRooms() {
   // Convert Matrix room to RoomInfo
   const convertRoom = useCallback(
     (room: Room, publicRoomInfo?: { name: string }): RoomInfo => {
-      const timeline = room.getLiveTimeline().getEvents();
-      const lastEvent = timeline.length > 0 ? timeline[timeline.length - 1] : null;
-      const isDirect = room.getDMInviter() !== null;
-      const topicEvent = room.currentState.getStateEvents('m.room.topic', '') || [];
-      const topic = Array.isArray(topicEvent)
-        ? (topicEvent[0] as MatrixEvent)?.getContent().topic
-        : (topicEvent as MatrixEvent)?.getContent().topic;
+      // Get the last message from the timeline
+      const timeline = room.getLiveTimeline();
+      const events = timeline.getEvents();
+      const lastMessageEvent = events
+        .slice()
+        .reverse()
+        .find(
+          event =>
+            event.getType() === 'm.room.message' && !event.isRedacted() && event.getContent()?.body
+        );
 
       // Get room name from state event
       const nameEvent = room.currentState.getStateEvents('m.room.name', '');
@@ -65,6 +68,12 @@ export function useMatrixRooms() {
         ? aliasEvent[0]?.getContent().alias
         : aliasEvent?.getContent().alias;
 
+      // Get topic
+      const topicEvent = room.currentState.getStateEvents('m.room.topic', '') || [];
+      const topic = Array.isArray(topicEvent)
+        ? (topicEvent[0] as MatrixEvent)?.getContent().topic
+        : (topicEvent as MatrixEvent)?.getContent().topic;
+
       // Use name in priority order
       const roomName =
         publicRoomInfo?.name ||
@@ -73,21 +82,34 @@ export function useMatrixRooms() {
         (canonicalAlias ? canonicalAlias.split(':')[0].substring(1) : null) ||
         'Unnamed Room';
 
+      // Check if it's a direct message room
+      const isDirect = room.getDMInviter() !== null;
+
+      // Get last message info
+      const lastMessage = lastMessageEvent
+        ? {
+            content: (() => {
+              const content = lastMessageEvent.getContent();
+              if (content.msgtype === 'm.image') return '📷 Image';
+              if (content.msgtype === 'm.video') return '🎥 Video';
+              if (content.msgtype === 'm.audio') return '🎵 Audio';
+              if (content.msgtype === 'm.file') return '📎 File';
+              if (content.msgtype === 'm.location') return '📍 Location';
+              if (content.msgtype === 'm.emote') return `* ${content.body}`;
+              return content.body || 'Message';
+            })(),
+            timestamp: lastMessageEvent.getTs(),
+            sender: lastMessageEvent.getSender() || '',
+          }
+        : undefined;
+
       return {
         id: room.roomId,
         name: roomName,
         topic,
         avatarUrl: room.getAvatarUrl(client?.baseUrl || '', 96, 96, 'crop') || undefined,
         isDirect,
-        lastMessage: lastEvent
-          ? {
-              content:
-                lastEvent.getContent().body ||
-                (lastEvent.getContent().msgtype === 'm.image' ? '📷 Image' : 'Message'),
-              timestamp: lastEvent.getTs(),
-              sender: lastEvent.getSender() || '',
-            }
-          : undefined,
+        lastMessage,
         unreadCount: room.getUnreadNotificationCount(),
       };
     },
@@ -521,6 +543,104 @@ export function useMatrixRooms() {
       throw new Error(error.message || 'Failed to leave room');
     }
   };
+
+  // Update rooms list
+  useEffect(() => {
+    if (!client) return;
+
+    const handleTimelineEvent = (event: MatrixEvent, room: Room) => {
+      // Only handle message events that aren't redacted
+      if (event.getType() !== 'm.room.message' || event.isRedacted() || !event.getContent()?.body)
+        return;
+
+      // Immediately update the room in our list
+      setRooms(prevRooms => {
+        const roomIndex = prevRooms.findIndex(r => r.id === room.roomId);
+        if (roomIndex === -1) return prevRooms;
+
+        // Create updated room info with new last message
+        const updatedRoom = {
+          ...prevRooms[roomIndex],
+          lastMessage: {
+            content: (() => {
+              const content = event.getContent();
+              if (content.msgtype === 'm.image') return '📷 Image';
+              if (content.msgtype === 'm.video') return '🎥 Video';
+              if (content.msgtype === 'm.audio') return '🎵 Audio';
+              if (content.msgtype === 'm.file') return '📎 File';
+              if (content.msgtype === 'm.location') return '📍 Location';
+              if (content.msgtype === 'm.emote') return `* ${content.body}`;
+              return content.body || 'Message';
+            })(),
+            timestamp: event.getTs(),
+            sender: event.getSender() || '',
+          },
+          unreadCount: room.getUnreadNotificationCount(),
+        };
+
+        // Create new array with updated room
+        const newRooms = [...prevRooms];
+        newRooms[roomIndex] = updatedRoom;
+
+        // Sort rooms by last message timestamp
+        return newRooms.sort((a, b) => {
+          const aTime = a.lastMessage?.timestamp || 0;
+          const bTime = b.lastMessage?.timestamp || 0;
+          return bTime - aTime;
+        });
+      });
+    };
+
+    const handleRoomSync = (room: Room) => {
+      setRooms(prevRooms => {
+        const updatedRoom = convertRoom(room);
+        const roomIndex = prevRooms.findIndex(r => r.id === room.roomId);
+
+        if (roomIndex === -1) {
+          // New room, add it to the list
+          return [...prevRooms, updatedRoom].sort((a, b) => {
+            const aTime = a.lastMessage?.timestamp || 0;
+            const bTime = b.lastMessage?.timestamp || 0;
+            return bTime - aTime;
+          });
+        } else {
+          // Update existing room
+          const newRooms = [...prevRooms];
+          newRooms[roomIndex] = updatedRoom;
+          return newRooms.sort((a, b) => {
+            const aTime = a.lastMessage?.timestamp || 0;
+            const bTime = b.lastMessage?.timestamp || 0;
+            return bTime - aTime;
+          });
+        }
+      });
+    };
+
+    // Listen for timeline events in all rooms
+    client.getRooms().forEach(room => {
+      room.on('Room.timeline' as any, handleTimelineEvent);
+      room.on('Room.name' as any, () => handleRoomSync(room));
+      room.on('Room.receipt' as any, () => handleRoomSync(room));
+    });
+
+    // Listen for new rooms
+    client.on('Room' as any, (room: Room) => {
+      room.on('Room.timeline' as any, handleTimelineEvent);
+      room.on('Room.name' as any, () => handleRoomSync(room));
+      room.on('Room.receipt' as any, () => handleRoomSync(room));
+      handleRoomSync(room);
+    });
+
+    // Cleanup
+    return () => {
+      client.getRooms().forEach(room => {
+        room.removeListener('Room.timeline' as any, handleTimelineEvent);
+        room.removeListener('Room.name' as any, () => handleRoomSync(room));
+        room.removeListener('Room.receipt' as any, () => handleRoomSync(room));
+      });
+      client.removeListener('Room' as any, handleRoomSync);
+    };
+  }, [client, convertRoom]);
 
   return {
     rooms,
