@@ -2,6 +2,7 @@
 
 import { useMatrixMessages } from '@/hooks/use-matrix-messages';
 import { useAuthStore } from '@/lib/store/auth-store';
+import { cn } from '@/lib/utils';
 import { Loader2 } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { Message } from './message';
@@ -58,43 +59,50 @@ export function MessageList({ roomId, className }: MessageListProps) {
   }
 
   return (
-    <div ref={containerRef} className="flex flex-col space-y-2 overflow-y-auto p-4">
-      {isLoading && (
-        <div className="flex items-center justify-center p-4">
-          <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-        </div>
-      )}
+    <div
+      ref={containerRef}
+      className={cn('flex flex-col-reverse h-full overflow-y-auto', className)}
+    >
+      <div className="flex flex-col gap-2 p-4">
+        <div ref={bottomRef} />
 
-      {messages.map(message => (
-        <Message
-          key={message.id}
-          id={message.id}
-          content={message.content}
-          sender={message.sender}
-          timestamp={message.timestamp}
-          status={message.status}
-          error={message.error}
-          type={message.type}
-          isEditing={editingMessageId === message.id}
-          onEdit={
-            message.sender === userId ? (id, newContent) => editMessage(id, newContent) : undefined
-          }
-          onDelete={message.sender === userId ? id => deleteMessage(id) : undefined}
-          onStartEdit={id => setEditingMessageId(id)}
-          onCancelEdit={() => setEditingMessageId(null)}
-          mimeType={message.mimeType}
-          fileName={message.fileName}
-          fileSize={message.fileSize}
-          thumbnailUrl={message.thumbnailUrl}
-          mediaUrl={message.mediaUrl}
-          duration={message.duration}
-          location={message.location}
-        />
-      ))}
+        {messages.map(message => (
+          <Message
+            key={message.id}
+            id={message.id}
+            content={message.content}
+            sender={message.sender}
+            timestamp={message.timestamp}
+            status={message.status}
+            error={message.error}
+            type={message.type}
+            isEditing={editingMessageId === message.id}
+            onEdit={
+              message.sender === userId
+                ? (id, newContent) => editMessage(id, newContent)
+                : undefined
+            }
+            onDelete={message.sender === userId ? id => deleteMessage(id) : undefined}
+            onStartEdit={id => setEditingMessageId(id)}
+            onCancelEdit={() => setEditingMessageId(null)}
+            mimeType={message.mimeType}
+            fileName={message.fileName}
+            fileSize={message.fileSize}
+            thumbnailUrl={message.thumbnailUrl}
+            mediaUrl={message.mediaUrl}
+            duration={message.duration}
+            location={message.location}
+          />
+        ))}
 
-      {typingUsers.length > 0 && <TypingIndicator users={typingUsers} />}
+        {typingUsers.length > 0 && <TypingIndicator users={typingUsers} />}
 
-      <div ref={bottomRef} />
+        {isLoading && (
+          <div className="flex items-center justify-center p-4">
+            <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+          </div>
+        )}
+      </div>
     </div>
   );
 }

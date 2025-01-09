@@ -82,7 +82,6 @@ export function useMatrixMessages(roomId: string) {
   const [hasMore, setHasMore] = useState(true);
   const [localMessages, setLocalMessages] = useState<Map<string, MessageEvent>>(new Map());
   const [typingUsers, setTypingUsers] = useState<string[]>([]);
-  const [isSynced, setIsSynced] = useState(false);
   const typingTimeoutRef = useRef<NodeJS.Timeout>();
   const timelineWindowRef = useRef<TimelineWindow>();
   const retryTimeoutRef = useRef<NodeJS.Timeout>();
@@ -583,8 +582,7 @@ export function useMatrixMessages(roomId: string) {
   // Send message with thread support
   const sendMessage = useCallback(
     async (content: string, options?: { threadId?: string; replyTo?: string }) => {
-      if (!client || !isInitialized) throw new Error('Client not initialized');
-      if (!isSynced) throw new Error('Client sync not ready');
+      if (!client) throw new Error('Client not initialized');
 
       // Create optimistic message
       const optimisticId = `local-${Date.now()}`;
@@ -655,14 +653,13 @@ export function useMatrixMessages(roomId: string) {
         throw err;
       }
     },
-    [client, isInitialized, isSynced, roomId, userId, updateMessageStatus, messages]
+    [client, roomId, userId, updateMessageStatus, messages]
   );
 
   // Upload file and send as message
   const uploadFile = useCallback(
     async (file: File) => {
       if (!client || !isInitialized) throw new Error('Client not initialized');
-      if (!isSynced) throw new Error('Client sync not ready');
 
       // Create optimistic message ID
       const optimisticId = `local-${Date.now()}`;
@@ -814,7 +811,7 @@ export function useMatrixMessages(roomId: string) {
         throw err;
       }
     },
-    [client, isInitialized, isSynced, roomId, userId]
+    [client, isInitialized, roomId, userId]
   );
 
   // Edit message with optimistic update
@@ -1015,6 +1012,76 @@ export function useMatrixMessages(roomId: string) {
     },
     [roomId, loadMessages, client, convertEvent]
   );
+
+  // Handle read receipt updates
+  useEffect(() => {
+    if (!client || !isInitialized) return;
+
+    const handleReadReceipt = (_event: any, room: Room) => {
+      if (room.roomId !== roomId) return;
+
+      // Update messages with new read receipts
+      setMessages(prevMessages => {
+        const updatedMessages = prevMessages.map(msg => {
+          if (!msg.id) return msg;
+
+          // Get receipt info for this event
+          const receiptTimeline = room.getReceiptsForEvent(room.findEventById(msg.id));
+          const readReceipt = receiptTimeline?.find(
+            receipt => receipt.type === 'm.read' && receipt.userId !== client.getUserId()
+          );
+
+          // Update status based on receipt
+          let status = msg.status;
+          if (readReceipt) {
+            status = 'read';
+          } else if (status !== 'read' && room.hasUserReadEvent(client.getUserId()!, msg.id)) {
+            status = 'delivered';
+          }
+
+          return status !== msg.status ? { ...msg, status } : msg;
+        });
+
+        return updatedMessages;
+      });
+    };
+
+    // Listen for receipt events
+    client.on(RoomEvent.Receipt, handleReadReceipt);
+
+    return () => {
+      client.removeListener(RoomEvent.Receipt, handleReadReceipt);
+    };
+  }, [client, isInitialized, roomId]);
+
+  // Send read receipts for latest event
+  useEffect(() => {
+    if (!client || !isInitialized || !roomId) return;
+
+    const room = client.getRoom(roomId);
+    if (!room) return;
+
+    // Get the latest event in the room
+    const timeline = room.getLiveTimeline();
+    const events = timeline.getEvents();
+    const latestEvent = events[events.length - 1];
+
+    // Only proceed if we have a valid event with an ID
+    if (latestEvent && latestEvent instanceof MatrixEvent && latestEvent.getId()) {
+      const eventId = latestEvent.getId()!;
+      if (!room.hasUserReadEvent(client.getUserId()!, eventId)) {
+        // Use the official SDK method to send read receipt
+        client.setRoomReadMarkers(roomId, eventId, latestEvent).catch(error => {
+          console.error('Failed to send read receipt:', error);
+        });
+
+        // Also send a regular read receipt for immediate feedback
+        client.sendReadReceipt(latestEvent).catch(error => {
+          console.error('Failed to send regular read receipt:', error);
+        });
+      }
+    }
+  }, [client, isInitialized, roomId, messages]);
 
   return {
     messages,

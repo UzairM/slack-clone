@@ -5,6 +5,8 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { useAuthStore } from '@/lib/store/auth-store';
 import { cn } from '@/lib/utils';
+import { Smile } from 'lucide-react';
+import React from 'react';
 import { EmojiPicker } from '../ui/emoji-picker';
 
 interface MessageReactionsProps {
@@ -42,26 +44,34 @@ export function MessageReactions({
     await onAddReaction(messageId, emoji);
   };
 
+  const ReactionButton = React.forwardRef<
+    HTMLButtonElement,
+    React.ComponentPropsWithoutRef<typeof Button>
+  >((props, ref) => (
+    <TooltipProvider>
+      <Tooltip>
+        <Popover>
+          <PopoverTrigger asChild>
+            <TooltipTrigger asChild>
+              <Button ref={ref} variant="ghost" size="icon" className="h-6 w-6" {...props}>
+                <Smile className="h-4 w-4" />
+              </Button>
+            </TooltipTrigger>
+          </PopoverTrigger>
+          <TooltipContent>Add reaction</TooltipContent>
+          <PopoverContent side="top" align="start" className="w-80 p-0">
+            <EmojiPicker onEmojiSelect={handleEmojiSelect} />
+          </PopoverContent>
+        </Popover>
+      </Tooltip>
+    </TooltipProvider>
+  ));
+  ReactionButton.displayName = 'ReactionButton';
+
   if (!reactions || Object.keys(reactions).length === 0) {
     return (
       <div className={cn('flex items-center gap-1', className)}>
-        <TooltipProvider>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Popover>
-                <PopoverTrigger asChild>
-                  <Button variant="ghost" size="icon" className="h-6 w-6">
-                    <span className="text-sm">😊</span>
-                  </Button>
-                </PopoverTrigger>
-                <PopoverContent side="top" align="start" className="w-80">
-                  <EmojiPicker onEmojiSelect={handleEmojiSelect} />
-                </PopoverContent>
-              </Popover>
-            </TooltipTrigger>
-            <TooltipContent>Add reaction</TooltipContent>
-          </Tooltip>
-        </TooltipProvider>
+        <ReactionButton />
       </div>
     );
   }
@@ -89,23 +99,7 @@ export function MessageReactions({
           </TooltipProvider>
         );
       })}
-      <TooltipProvider>
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <Popover>
-              <PopoverTrigger asChild>
-                <Button variant="ghost" size="icon" className="h-6 w-6">
-                  <span className="text-sm">😊</span>
-                </Button>
-              </PopoverTrigger>
-              <PopoverContent side="top" align="start" className="w-80">
-                <EmojiPicker onEmojiSelect={handleEmojiSelect} />
-              </PopoverContent>
-            </Popover>
-          </TooltipTrigger>
-          <TooltipContent>Add reaction</TooltipContent>
-        </Tooltip>
-      </TooltipProvider>
+      <ReactionButton />
     </div>
   );
 }

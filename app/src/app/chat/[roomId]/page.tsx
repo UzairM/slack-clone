@@ -1,9 +1,9 @@
 'use client';
 
 import { ChatContainer } from '@/components/chat/chat-container';
+import { MemberList } from '@/components/chat/member-list';
 import { RoomInfo } from '@/components/chat/room-info';
 import { Button } from '@/components/ui/button';
-import { ScrollArea } from '@/components/ui/scroll-area';
 import { Separator } from '@/components/ui/separator';
 import { useMatrix } from '@/hooks/use-matrix';
 import { useMatrixRooms } from '@/hooks/use-matrix-rooms';
@@ -171,12 +171,7 @@ export default function ChatPage({ params }: ChatPageProps) {
             <Users className="h-4 w-4" />
           </Button>
         </header>
-        <ScrollArea className="h-[calc(100vh-3.5rem)]">
-          <div className="p-4">
-            {/* TODO: Add member list component */}
-            <p className="text-sm text-muted-foreground">Member list coming soon...</p>
-          </div>
-        </ScrollArea>
+        <MemberList roomId={decodedRoomId} />
       </aside>
 
       {/* Room Info Sidebar */}

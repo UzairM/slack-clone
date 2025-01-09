@@ -73,12 +73,16 @@ export function ChatContainer({ roomId, className }: ChatContainerProps) {
   const mainMessages = messages.filter(msg => !msg.threadId);
 
   return (
-    <div className={cn('flex h-full', className)}>
+    <div className={cn('flex h-full relative', className)}>
       {/* Main chat */}
-      <div className="flex flex-1 flex-col">
-        <div ref={scrollContainerRef} onScroll={handleScroll} className="flex-1 overflow-y-auto">
+      <div className="flex-1 flex flex-col relative">
+        <div
+          ref={scrollContainerRef}
+          onScroll={handleScroll}
+          className="absolute inset-0 bottom-[88px] overflow-y-auto"
+        >
           <div className="flex flex-col justify-end min-h-full">
-            <div className="flex flex-col">
+            <div className="space-y-2 px-4 py-4">
               {mainMessages.map(message => (
                 <Message
                   key={message.id}
@@ -98,8 +102,10 @@ export function ChatContainer({ roomId, className }: ChatContainerProps) {
             </div>
           </div>
         </div>
-        <MessageInput onSend={sendMessage} onUpload={uploadFile} onTyping={handleUserTyping} />
-        {typingUsers.length > 0 && <TypingIndicator users={typingUsers} className="border-t" />}
+        <div className="absolute bottom-0 left-0 right-0 border-t bg-background">
+          <MessageInput onSend={sendMessage} onUpload={uploadFile} onTyping={handleUserTyping} />
+          {typingUsers.length > 0 && <TypingIndicator users={typingUsers} />}
+        </div>
       </div>
 
       {/* Thread view */}
@@ -108,7 +114,7 @@ export function ChatContainer({ roomId, className }: ChatContainerProps) {
           roomId={roomId}
           threadId={activeThreadId}
           onClose={() => setActiveThreadId(null)}
-          className="w-[400px]"
+          className="w-[400px] border-l"
         />
       )}
     </div>

@@ -9,6 +9,7 @@ import { useMatrixRooms } from '@/hooks/use-matrix-rooms';
 import { cn } from '@/lib/utils';
 import { Hash, Lock, MessageSquare, X } from 'lucide-react';
 import { Direction } from 'matrix-js-sdk';
+import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
 
@@ -19,20 +20,31 @@ interface RoomInfoProps {
 }
 
 export function RoomInfo({ roomId, className, onClose }: RoomInfoProps) {
+  const router = useRouter();
   const { client } = useMatrix();
   const { rooms, leaveRoom } = useMatrixRooms();
   const [room, setRoom] = useState<any>(null);
   const [isLeaving, setIsLeaving] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [isAdmin, setIsAdmin] = useState(false);
 
-  // Find room details
+  // Find room details and check admin status
   useEffect(() => {
-    if (rooms.length > 0) {
-      const currentRoom = rooms.find(r => r.id === roomId);
-      if (currentRoom) {
-        setRoom(currentRoom);
+    if (!client || rooms.length === 0) return;
+
+    const currentRoom = rooms.find(r => r.id === roomId);
+    if (currentRoom) {
+      setRoom(currentRoom);
+
+      // Check if user is admin
+      const matrixRoom = client.getRoom(roomId);
+      if (matrixRoom) {
+        const userId = client.getUserId();
+        const powerLevel = matrixRoom.getMember(userId!)?.powerLevel || 0;
+        setIsAdmin(powerLevel >= 100);
       }
     }
-  }, [rooms, roomId]);
+  }, [client, rooms, roomId]);
 
   const handleLeaveRoom = async () => {
     try {
@@ -44,6 +56,47 @@ export function RoomInfo({ roomId, className, onClose }: RoomInfoProps) {
       toast.error(error.message || 'Failed to leave room');
     } finally {
       setIsLeaving(false);
+    }
+  };
+
+  const handleDeleteRoom = async () => {
+    if (
+      !client ||
+      !window.confirm('Are you sure you want to delete this room? This action cannot be undone.')
+    ) {
+      return;
+    }
+
+    try {
+      setIsDeleting(true);
+      const matrixRoom = client.getRoom(roomId);
+
+      // Delete all state events
+      await client.sendStateEvent(roomId, 'm.room.tombstone' as any, {
+        body: 'This room has been deleted',
+        replacement_room: '',
+      });
+
+      // Kick all members
+      const members = matrixRoom?.getJoinedMembers() || [];
+      for (const member of members) {
+        if (member.userId !== client.getUserId()) {
+          await client.kick(roomId, member.userId, 'Room deleted by admin');
+        }
+      }
+
+      // Leave the room and navigate
+      await leaveRoom(roomId);
+      onClose?.(); // Close the room info panel
+      router.push('/chat'); // Use push instead of replace
+      router.refresh(); // Force refresh the router
+
+      toast.success('Room deleted successfully');
+    } catch (error: any) {
+      console.error('Failed to delete room:', error);
+      toast.error(error.message || 'Failed to delete room');
+    } finally {
+      setIsDeleting(false);
     }
   };
 
@@ -131,10 +184,20 @@ export function RoomInfo({ roomId, className, onClose }: RoomInfoProps) {
                   variant="destructive"
                   className="w-full"
                   onClick={handleLeaveRoom}
-                  disabled={isLeaving}
+                  disabled={isLeaving || isDeleting}
                 >
                   Leave Room
                 </Button>
+                {isAdmin && (
+                  <Button
+                    variant="destructive"
+                    className="w-full"
+                    onClick={handleDeleteRoom}
+                    disabled={isLeaving || isDeleting}
+                  >
+                    Delete Room
+                  </Button>
+                )}
               </div>
             </div>
           </div>

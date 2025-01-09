@@ -20,7 +20,7 @@ import {
   Smile,
 } from 'lucide-react';
 import { ISendEventResponse } from 'matrix-js-sdk';
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 
 interface MessageInputProps {
@@ -39,6 +39,7 @@ export function MessageInput({ onSend, onUpload, onTyping, className }: MessageI
   const imageInputRef = useRef<HTMLInputElement>(null);
   const videoInputRef = useRef<HTMLInputElement>(null);
   const audioInputRef = useRef<HTMLInputElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   const handleSubmit = async () => {
     const trimmedContent = content.trim();
@@ -48,6 +49,9 @@ export function MessageInput({ onSend, onUpload, onTyping, className }: MessageI
       setIsSending(true);
       await onSend(trimmedContent);
       setContent('');
+      setTimeout(() => {
+        textareaRef.current?.focus();
+      }, 0);
     } catch (error) {
       console.error('Failed to send message:', error);
       toast.error('Failed to send message');
@@ -66,7 +70,19 @@ export function MessageInput({ onSend, onUpload, onTyping, className }: MessageI
   const handleChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     setContent(e.target.value);
     onTyping();
+
+    // Auto-resize the textarea
+    const textarea = e.target;
+    textarea.style.height = 'inherit';
+    textarea.style.height = `${Math.min(textarea.scrollHeight, 200)}px`;
   };
+
+  // Reset height when content is cleared
+  useEffect(() => {
+    if (!content && textareaRef.current) {
+      textareaRef.current.style.height = '40px';
+    }
+  }, [content]);
 
   const handleEmojiSelect = (emoji: string) => {
     setContent(prev => prev + emoji);
@@ -302,8 +318,10 @@ export function MessageInput({ onSend, onUpload, onTyping, className }: MessageI
                 <Smile className="h-4 w-4" />
               </Button>
             </PopoverTrigger>
-            <PopoverContent side="top" align="end" className="w-80">
-              <EmojiPicker onEmojiSelect={handleEmojiSelect} />
+            <PopoverContent side="top" align="end" className="w-80 p-0 border-none">
+              <div className="rounded-md border bg-popover">
+                <EmojiPicker onEmojiSelect={handleEmojiSelect} />
+              </div>
             </PopoverContent>
           </Popover>
         </TooltipProvider>
@@ -312,16 +330,19 @@ export function MessageInput({ onSend, onUpload, onTyping, className }: MessageI
       {/* Message input */}
       <div className="flex items-end gap-2">
         <Textarea
+          ref={textareaRef}
           value={content}
           onChange={handleChange}
           onKeyDown={handleKeyPress}
           placeholder="Type a message..."
-          className="min-h-[60px] max-h-[200px] resize-none"
+          className="min-h-[40px] max-h-[200px] resize-none overflow-y-auto py-2"
+          rows={1}
+          autoFocus
           disabled={isSending}
         />
         <Button
           size="icon"
-          className="h-[60px] shrink-0"
+          className="h-10 shrink-0"
           onClick={handleSubmit}
           disabled={!content.trim() || isSending}
         >
