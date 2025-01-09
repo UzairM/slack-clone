@@ -1,73 +1,216 @@
+'use client';
+
 import { useMatrix } from '@/hooks/use-matrix';
-import { convertEventToMessage, Message } from '@/lib/matrix/messages';
 import { useAuthStore } from '@/lib/store/auth-store';
 import {
+  ClientEvent,
+  Direction,
+  EventStatus,
   EventType,
   MatrixEvent,
   MsgType,
   RelationType,
-  RoomEmittedEvents,
+  Room,
   RoomEvent,
+  SyncState,
+  SyncStateData,
+  TimelineWindow,
 } from 'matrix-js-sdk';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 
-const MAX_RETRIES = 3;
-const RETRY_DELAY = 1000; // 1 second
+interface MessageEvent {
+  id: string;
+  content: string;
+  sender: string;
+  timestamp: number;
+  type: 'm.text' | 'm.image' | 'm.file' | 'm.audio' | 'm.video' | 'm.location' | 'm.emote';
+  status: 'sending' | 'sent' | 'delivered' | 'read' | 'error';
+  error?: string;
+  isEdited?: boolean;
+  editedTimestamp?: number;
+  originalContent?: string;
+  // Additional fields for rich content
+  mimeType?: string;
+  fileName?: string;
+  fileSize?: number;
+  thumbnailUrl?: string;
+  mediaUrl?: string;
+  duration?: number;
+  location?: {
+    latitude: number;
+    longitude: number;
+    description?: string;
+  };
+}
 
 export function useMatrixMessages(roomId: string) {
   const { client, isInitialized } = useMatrix();
   const { userId } = useAuthStore();
-  const [messages, setMessages] = useState<Message[]>([]);
+  const [messages, setMessages] = useState<MessageEvent[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [hasMore, setHasMore] = useState(true);
+  const [localMessages, setLocalMessages] = useState<Map<string, MessageEvent>>(new Map());
+  const [typingUsers, setTypingUsers] = useState<string[]>([]);
+  const typingTimeoutRef = useRef<NodeJS.Timeout>();
+  const timelineWindowRef = useRef<TimelineWindow>();
 
-  // Refs for cleanup
-  const eventListeners = useRef<{ event: RoomEmittedEvents; listener: any }[]>([]);
-  const timeouts = useRef<NodeJS.Timeout[]>([]);
+  // Convert Matrix event to message
+  const convertEvent = useCallback(
+    (event: MatrixEvent): MessageEvent | null => {
+      if (event.getType() !== EventType.RoomMessage) return null;
 
-  // Cleanup function
-  const cleanup = useCallback(() => {
-    // Clear all timeouts
-    timeouts.current.forEach(timeout => clearTimeout(timeout));
-    timeouts.current = [];
+      // Get delivery status
+      let messageStatus: MessageEvent['status'] = 'sent';
+      if (!event.getId()) {
+        messageStatus = 'sending';
+      } else if (event.status === EventStatus.NOT_SENT) {
+        messageStatus = 'error';
+      } else {
+        const room = client?.getRoom(event.getRoomId() || '');
+        if (room) {
+          const receipts = room.getReceiptsForEvent(event);
+          const readReceipts = receipts.filter(r => (r.type as string) === 'm.read');
+          const deliveryReceipts = receipts.filter(r => (r.type as string) === 'm.delivery');
 
-    // Remove all event listeners
-    if (client) {
-      const room = client.getRoom(roomId);
-      if (room) {
-        eventListeners.current.forEach(({ event, listener }) => {
-          room.removeListener(event, listener);
-        });
-      }
-    }
-    eventListeners.current = [];
-  }, [client, roomId]);
-
-  // Retry function
-  const retryOperation = useCallback(
-    async (operation: () => Promise<any>, retries = MAX_RETRIES): Promise<any> => {
-      try {
-        return await operation();
-      } catch (error) {
-        if (retries > 0) {
-          return new Promise((resolve, reject) => {
-            const timeout = setTimeout(async () => {
-              try {
-                const result = await retryOperation(operation, retries - 1);
-                resolve(result);
-              } catch (err) {
-                reject(err);
-              }
-            }, RETRY_DELAY);
-            timeouts.current.push(timeout);
-          });
+          if (readReceipts.length > 0) {
+            messageStatus = 'read';
+          } else if (deliveryReceipts.length > 0) {
+            messageStatus = 'delivered';
+          }
         }
-        throw error;
+      }
+
+      // Check if message is edited
+      const replaces = event.getRelation()?.rel_type === RelationType.Replace;
+      const replacingEvent = event.replacingEvent();
+      const originalEvent = replaces ? event.replacingEvent() : event;
+
+      const content = event.getContent();
+      const msgtype = content.msgtype as MessageEvent['type'];
+
+      // Base message properties
+      const baseMessage = {
+        id: event.getId() || '',
+        sender: event.getSender() || '',
+        timestamp: event.getTs(),
+        status: messageStatus,
+        error: event.status === EventStatus.NOT_SENT ? event.error?.message : undefined,
+        isEdited: !!replacingEvent,
+        editedTimestamp: replacingEvent?.getTs(),
+        originalContent: replaces ? originalEvent?.getContent().body : undefined,
+      };
+
+      // Handle different message types
+      switch (msgtype) {
+        case 'm.text':
+        case 'm.emote':
+          return {
+            ...baseMessage,
+            type: msgtype,
+            content: content.body || '',
+          };
+
+        case 'm.image':
+          return {
+            ...baseMessage,
+            type: msgtype,
+            content: content.body || '',
+            mimeType: content.info?.mimetype,
+            fileSize: content.info?.size,
+            thumbnailUrl: content.info?.thumbnail_url,
+            mediaUrl: content.url,
+          };
+
+        case 'm.file':
+          return {
+            ...baseMessage,
+            type: msgtype,
+            content: content.body || '',
+            fileName: content.filename || content.body,
+            mimeType: content.info?.mimetype,
+            fileSize: content.info?.size,
+            mediaUrl: content.url,
+          };
+
+        case 'm.audio':
+          return {
+            ...baseMessage,
+            type: msgtype,
+            content: content.body || '',
+            mimeType: content.info?.mimetype,
+            fileSize: content.info?.size,
+            duration: content.info?.duration,
+            mediaUrl: content.url,
+          };
+
+        case 'm.video':
+          return {
+            ...baseMessage,
+            type: msgtype,
+            content: content.body || '',
+            mimeType: content.info?.mimetype,
+            fileSize: content.info?.size,
+            duration: content.info?.duration,
+            thumbnailUrl: content.info?.thumbnail_url,
+            mediaUrl: content.url,
+          };
+
+        case 'm.location':
+          return {
+            ...baseMessage,
+            type: msgtype,
+            content: content.body || '',
+            location: {
+              latitude: content.geo_uri?.split(':')[1]?.split(',')[0],
+              longitude: content.geo_uri?.split(':')[1]?.split(',')[1],
+              description: content.body,
+            },
+          };
+
+        default:
+          // Fallback to text message
+          return {
+            ...baseMessage,
+            type: 'm.text',
+            content: content.body || '',
+          };
       }
     },
+    [client]
+  );
+
+  // Update message status
+  const updateMessageStatus = useCallback(
+    (eventId: string, status: MessageEvent['status'], error?: string) => {
+      setMessages(prev =>
+        prev.map(msg =>
+          msg.id === eventId ? { ...msg, status, ...(error ? { error } : {}) } : msg
+        )
+      );
+    },
     []
+  );
+
+  // Handle receipt events
+  const handleReceipt = useCallback(
+    (event: MatrixEvent, room: Room) => {
+      if (room.roomId !== roomId) return;
+
+      const content = event.getContent();
+      Object.entries(content).forEach(([eventId, receipts]) => {
+        const readReceipt = receipts['m.read'];
+        const deliveryReceipt = receipts['m.delivery'];
+
+        if (readReceipt) {
+          updateMessageStatus(eventId, 'read');
+        } else if (deliveryReceipt) {
+          updateMessageStatus(eventId, 'delivered');
+        }
+      });
+    },
+    [roomId, updateMessageStatus]
   );
 
   // Load messages
@@ -76,23 +219,33 @@ export function useMatrixMessages(roomId: string) {
       if (!client || !isInitialized) return;
 
       try {
-        await retryOperation(async () => {
-          const room = client.getRoom(roomId);
-          if (!room) throw new Error('Room not found');
+        setIsLoading(true);
+        const room = client.getRoom(roomId);
+        if (!room) throw new Error('Room not found');
 
-          // Get timeline events
-          const timeline = room.getLiveTimeline();
-          const events = timeline
-            .getEvents()
-            .filter(event => event.getType() === EventType.RoomMessage)
-            .map(event => convertEventToMessage(event, room, client.baseUrl || ''))
-            .filter((msg): msg is Message => msg !== null)
-            .sort((a, b) => a.timestamp - b.timestamp);
+        // Get timeline events
+        const timeline = room.getLiveTimeline();
+        const events = timeline
+          .getEvents()
+          .filter(event => {
+            // Only include valid message events that aren't redacted
+            return (
+              event.getType() === EventType.RoomMessage &&
+              !event.isRedacted() &&
+              event.getContent()?.body
+            );
+          })
+          .map(event => convertEvent(event))
+          .filter((msg): msg is MessageEvent => msg !== null)
+          .sort((a, b) => a.timestamp - b.timestamp);
 
-          setMessages(events);
-          setHasMore(events.length >= limit);
-          setError(null);
-        });
+        // Add local messages that haven't been sent yet
+        const localMsgs = Array.from(localMessages.values());
+        const allMessages = [...events, ...localMsgs].sort((a, b) => a.timestamp - b.timestamp);
+
+        setMessages(allMessages);
+        setHasMore(events.length >= limit);
+        setError(null);
       } catch (err: any) {
         console.error('Failed to load messages:', err);
         setError(err.message || 'Failed to load messages');
@@ -101,143 +254,190 @@ export function useMatrixMessages(roomId: string) {
         setIsLoading(false);
       }
     },
-    [client, isInitialized, roomId, retryOperation]
+    [client, isInitialized, roomId, convertEvent, localMessages]
   );
 
   // Load more messages
   const loadMore = useCallback(async () => {
-    if (!client || !isInitialized || !hasMore) return;
+    if (!client || !isInitialized || !hasMore || isLoading) return;
 
     try {
-      await retryOperation(async () => {
-        const room = client.getRoom(roomId);
-        if (!room) throw new Error('Room not found');
+      setIsLoading(true);
+      const room = client.getRoom(roomId);
+      if (!room) throw new Error('Room not found');
 
-        // Get more events from the timeline
-        await client.scrollback(room, 50);
-        await loadMessages(50);
-      });
+      // Initialize timeline window if needed
+      if (!timelineWindowRef.current) {
+        const timelineSet = room.getUnfilteredTimelineSet();
+        timelineWindowRef.current = new TimelineWindow(client, timelineSet);
+      }
+
+      // Paginate backwards
+      const hasMoreEvents = await timelineWindowRef.current.paginate(Direction.Backward, 50);
+      setHasMore(hasMoreEvents);
+
+      // Get events from the window
+      const events = timelineWindowRef.current
+        .getEvents()
+        .filter(event => {
+          return (
+            event.getType() === EventType.RoomMessage &&
+            !event.isRedacted() &&
+            event.getContent()?.body
+          );
+        })
+        .map(event => convertEvent(event))
+        .filter((msg): msg is MessageEvent => msg !== null)
+        .sort((a, b) => a.timestamp - b.timestamp);
+
+      if (events.length > 0) {
+        setMessages(prev => {
+          // Remove any duplicates
+          const newMessages = events.filter(event => !prev.some(msg => msg.id === event.id));
+          return [...newMessages, ...prev];
+        });
+      }
     } catch (err: any) {
       console.error('Failed to load more messages:', err);
       setError(err.message || 'Failed to load more messages');
       toast.error('Failed to load more messages');
+    } finally {
+      setIsLoading(false);
     }
-  }, [client, isInitialized, hasMore, roomId, loadMessages, retryOperation]);
+  }, [client, isInitialized, hasMore, roomId, isLoading, convertEvent]);
 
-  // Send message
+  // Send message with optimistic updates
   const sendMessage = useCallback(
     async (content: string, replyTo?: string) => {
-      if (!client || !isInitialized || !userId) throw new Error('Client not initialized');
+      if (!client || !isInitialized) throw new Error('Client not initialized');
+
+      // Create optimistic message
+      const optimisticId = `local-${Date.now()}`;
+      const optimisticMessage: MessageEvent = {
+        id: optimisticId,
+        content,
+        sender: userId || '',
+        timestamp: Date.now(),
+        type: MsgType.Text,
+        status: 'sending',
+      };
+
+      // Add to local messages
+      setLocalMessages(prev => new Map(prev).set(optimisticId, optimisticMessage));
+      setMessages(prev => [...prev, optimisticMessage]);
 
       try {
-        await retryOperation(async () => {
-          const room = client.getRoom(roomId);
-          if (!room) throw new Error('Room not found');
+        const room = client.getRoom(roomId);
+        if (!room) throw new Error('Room not found');
 
-          const member = room.getMember(userId);
-          const avatarUrl = member?.getAvatarUrl(client.baseUrl || '', 32, 32, 'crop', true, false);
-
-          // Create temporary message
-          const tempMessage: Message = {
-            id: `temp-${Date.now()}`,
-            content,
-            type: MsgType.Text,
-            sender: {
-              id: userId,
-              name: member?.name || userId,
-              avatarUrl: avatarUrl || undefined,
+        let result;
+        if (replyTo) {
+          result = await client.sendEvent(roomId, EventType.RoomMessage, {
+            msgtype: MsgType.Text,
+            body: content,
+            'm.relates_to': {
+              'm.in_reply_to': {
+                event_id: replyTo,
+              },
             },
-            timestamp: Date.now(),
-            isEdited: false,
-            status: 'sending',
-            reactions: {},
-            ...(replyTo && {
-              replyTo: {
-                id: replyTo,
-                content: messages.find(m => m.id === replyTo)?.content || '',
-                sender: messages.find(m => m.id === replyTo)?.sender.id || '',
-              },
-            }),
-          };
+          });
+        } else {
+          result = await client.sendTextMessage(roomId, content);
+        }
 
-          // Add temporary message to state
-          setMessages(prev => [...prev, tempMessage]);
-
-          // Send message
-          if (replyTo) {
-            await client.sendMessage(roomId, {
-              msgtype: MsgType.Text,
-              body: content,
-              'm.relates_to': {
-                'm.in_reply_to': {
-                  event_id: replyTo,
-                },
-              },
-            });
-          } else {
-            await client.sendTextMessage(roomId, content);
-          }
+        // Update local message with real ID
+        setLocalMessages(prev => {
+          const updated = new Map(prev);
+          updated.delete(optimisticId);
+          return updated;
         });
+
+        updateMessageStatus(result.event_id, 'sent');
+        return result;
       } catch (err: any) {
         console.error('Failed to send message:', err);
+        updateMessageStatus(optimisticId, 'error', err.message || 'Failed to send message');
         toast.error('Failed to send message');
-        throw new Error(err.message || 'Failed to send message');
+        throw err;
       }
     },
-    [client, isInitialized, roomId, userId, messages, retryOperation]
+    [client, isInitialized, roomId, userId, updateMessageStatus]
   );
 
-  // Edit message
+  // Edit message with optimistic update
   const editMessage = useCallback(
     async (messageId: string, newContent: string) => {
       if (!client || !isInitialized) throw new Error('Client not initialized');
 
-      try {
-        await retryOperation(async () => {
-          const room = client.getRoom(roomId);
-          if (!room) throw new Error('Room not found');
+      // Find the message to edit
+      const messageToEdit = messages.find(msg => msg.id === messageId);
+      if (!messageToEdit) throw new Error('Message not found');
 
-          await client.sendMessage(roomId, {
+      // Create optimistic update
+      const optimisticEdit: MessageEvent = {
+        ...messageToEdit,
+        content: newContent,
+        isEdited: true,
+        editedTimestamp: Date.now(),
+        originalContent: messageToEdit.content,
+      };
+
+      // Update messages optimistically
+      setMessages(prev => prev.map(msg => (msg.id === messageId ? optimisticEdit : msg)));
+
+      try {
+        await client.sendEvent(roomId, EventType.RoomMessage, {
+          msgtype: MsgType.Text,
+          body: `* ${newContent}`,
+          'm.new_content': {
             msgtype: MsgType.Text,
-            body: `* ${newContent}`,
-            'm.new_content': {
-              msgtype: MsgType.Text,
-              body: newContent,
-            },
-            'm.relates_to': {
-              rel_type: RelationType.Replace,
-              event_id: messageId,
-            },
-          });
+            body: newContent,
+          },
+          'm.relates_to': {
+            rel_type: RelationType.Replace,
+            event_id: messageId,
+          },
         });
       } catch (err: any) {
+        // Revert optimistic update on error
+        setMessages(prev => prev.map(msg => (msg.id === messageId ? messageToEdit : msg)));
         console.error('Failed to edit message:', err);
         toast.error('Failed to edit message');
-        throw new Error(err.message || 'Failed to edit message');
+        throw err;
       }
     },
-    [client, isInitialized, roomId, retryOperation]
+    [client, isInitialized, roomId, messages]
   );
 
-  // Delete message
+  // Delete message with optimistic update
   const deleteMessage = useCallback(
     async (messageId: string) => {
       if (!client || !isInitialized) throw new Error('Client not initialized');
 
-      try {
-        await retryOperation(async () => {
-          const room = client.getRoom(roomId);
-          if (!room) throw new Error('Room not found');
+      // Find the message to delete
+      const messageToDelete = messages.find(msg => msg.id === messageId);
+      if (!messageToDelete) throw new Error('Message not found');
 
-          await client.redactEvent(roomId, messageId);
-        });
+      // Remove message optimistically
+      setMessages(prev => prev.filter(msg => msg.id !== messageId));
+
+      try {
+        await client.redactEvent(roomId, messageId);
       } catch (err: any) {
+        // Revert optimistic update on error
+        setMessages(prev => {
+          const index = prev.findIndex(msg => msg.timestamp > messageToDelete.timestamp);
+          if (index === -1) {
+            return [...prev, messageToDelete];
+          }
+          return [...prev.slice(0, index), messageToDelete, ...prev.slice(index)];
+        });
         console.error('Failed to delete message:', err);
         toast.error('Failed to delete message');
-        throw new Error(err.message || 'Failed to delete message');
+        throw err;
       }
     },
-    [client, isInitialized, roomId, retryOperation]
+    [client, isInitialized, roomId, messages]
   );
 
   // Add reaction
@@ -246,25 +446,20 @@ export function useMatrixMessages(roomId: string) {
       if (!client || !isInitialized) throw new Error('Client not initialized');
 
       try {
-        await retryOperation(async () => {
-          const room = client.getRoom(roomId);
-          if (!room) throw new Error('Room not found');
-
-          await client.sendEvent(roomId, EventType.Reaction, {
-            'm.relates_to': {
-              rel_type: RelationType.Annotation,
-              event_id: messageId,
-              key: reaction,
-            },
-          } as any);
+        await client.sendEvent(roomId, EventType.Reaction, {
+          'm.relates_to': {
+            rel_type: RelationType.Annotation,
+            event_id: messageId,
+            key: reaction,
+          },
         });
       } catch (err: any) {
         console.error('Failed to add reaction:', err);
         toast.error('Failed to add reaction');
-        throw new Error(err.message || 'Failed to add reaction');
+        throw err;
       }
     },
-    [client, isInitialized, roomId, retryOperation]
+    [client, isInitialized, roomId]
   );
 
   // Remove reaction
@@ -273,132 +468,212 @@ export function useMatrixMessages(roomId: string) {
       if (!client || !isInitialized) throw new Error('Client not initialized');
 
       try {
-        await retryOperation(async () => {
-          const room = client.getRoom(roomId);
-          if (!room) throw new Error('Room not found');
+        const room = client.getRoom(roomId);
+        if (!room) throw new Error('Room not found');
 
-          // Find the reaction event
-          const timeline = room.getLiveTimeline();
-          const events = timeline.getEvents();
-          const reactionEvent = events.find(
-            event =>
-              event.getType() === EventType.Reaction &&
-              event.getRelation()?.rel_type === RelationType.Annotation &&
-              event.getRelation()?.event_id === messageId &&
-              event.getRelation()?.key === reaction &&
-              event.getSender() === userId
+        const timeline = room.getLiveTimeline();
+        const reactionEvents = timeline.getEvents().filter(event => {
+          const relation = event.getRelation();
+          return (
+            event.getType() === EventType.Reaction &&
+            relation?.rel_type === RelationType.Annotation &&
+            relation?.event_id === messageId &&
+            relation?.key === reaction &&
+            event.getSender() === userId
           );
-
-          if (reactionEvent) {
-            await client.redactEvent(roomId, reactionEvent.getId()!);
-          }
         });
+
+        for (const event of reactionEvents) {
+          await client.redactEvent(roomId, event.getId()!);
+        }
       } catch (err: any) {
         console.error('Failed to remove reaction:', err);
         toast.error('Failed to remove reaction');
-        throw new Error(err.message || 'Failed to remove reaction');
+        throw err;
       }
     },
-    [client, isInitialized, roomId, userId, retryOperation]
+    [client, isInitialized, roomId, userId]
   );
 
-  // Listen for timeline events
+  // Handle typing events
+  const handleTyping = useCallback(
+    (event: MatrixEvent, room: Room) => {
+      if (room.roomId !== roomId) return;
+      const typingUserIds = room.currentState
+        .getStateEvents('m.typing')
+        .flatMap(event => event.getContent().user_ids || [])
+        .filter((id: string) => id !== userId);
+
+      setTypingUsers(
+        typingUserIds.map((id: string) => {
+          const member = room.getMember(id);
+          return member?.name || id.slice(1).split(':')[0];
+        })
+      );
+    },
+    [roomId, userId]
+  );
+
+  // Send typing notification
+  const sendTypingNotification = useCallback(
+    async (isTyping: boolean) => {
+      if (!client || !isInitialized) return;
+
+      try {
+        await client.sendTyping(roomId, isTyping, isTyping ? 4000 : 0);
+      } catch (error) {
+        console.error('Failed to send typing notification:', error);
+      }
+    },
+    [client, isInitialized, roomId]
+  );
+
+  // Handle user typing with debounce
+  const handleUserTyping = useCallback(() => {
+    if (typingTimeoutRef.current) {
+      clearTimeout(typingTimeoutRef.current);
+    }
+
+    sendTypingNotification(true);
+
+    typingTimeoutRef.current = setTimeout(() => {
+      sendTypingNotification(false);
+    }, 4000);
+  }, [sendTypingNotification]);
+
+  // Handle timeline events
+  const handleTimelineEvent = useCallback(
+    (event: MatrixEvent) => {
+      if (event.getRoomId() !== roomId) return;
+
+      // Handle edited messages
+      if (event.getRelation()?.rel_type === RelationType.Replace) {
+        const targetId = event.getRelation()?.event_id;
+        if (targetId) {
+          const room = client?.getRoom(roomId);
+          const originalEvent = room?.findEventById(targetId);
+
+          setMessages(prev =>
+            prev.map(msg =>
+              msg.id === targetId
+                ? {
+                    ...msg,
+                    content: event.getContent()['m.new_content'].body,
+                    isEdited: true,
+                    editedTimestamp: event.getTs(),
+                    originalContent:
+                      originalEvent instanceof MatrixEvent
+                        ? originalEvent.getContent().body
+                        : msg.content,
+                  }
+                : msg
+            )
+          );
+          return;
+        }
+      }
+
+      // Handle redactions (deleted messages)
+      if (event.getType() === 'm.room.redaction') {
+        const redactedId = event.getAssociatedId();
+        if (redactedId) {
+          setMessages(prev => prev.filter(msg => msg.id !== redactedId));
+          return;
+        }
+      }
+
+      // Handle redacted messages
+      if (event.isRedacted()) {
+        const redactionEvent = event.getRedactionEvent();
+        const redactedEvent = event.getId();
+        if (redactedEvent) {
+          setMessages(prev => prev.filter(msg => msg.id !== redactedEvent));
+          return;
+        }
+      }
+
+      // Handle new messages and other updates
+      const msg = convertEvent(event);
+      if (msg) {
+        setMessages(prev => {
+          // Remove any existing message with the same ID
+          const filtered = prev.filter(m => m.id !== msg.id);
+          // Add the new/updated message
+          return [...filtered, msg].sort((a, b) => a.timestamp - b.timestamp);
+        });
+        return;
+      }
+
+      loadMessages();
+    },
+    [roomId, loadMessages, client, convertEvent]
+  );
+
+  // Listen for room events
   useEffect(() => {
     if (!client || !isInitialized) return;
 
     const room = client.getRoom(roomId);
     if (!room) return;
 
-    const onEvent = (event: MatrixEvent) => {
+    const handleTimelineEvent = (event: MatrixEvent) => {
       if (event.getRoomId() !== roomId) return;
+      loadMessages();
+    };
 
-      // Handle new messages
-      if (event.getType() === EventType.RoomMessage) {
-        const message = convertEventToMessage(event, room, client.baseUrl || '');
-        if (message) {
-          setMessages(prev => [...prev, message]);
-        }
+    const handleReceiptEvent = (event: MatrixEvent, room: Room) => {
+      handleReceipt(event, room);
+    };
+
+    const handleSyncStateChange = (
+      state: SyncState,
+      prevState: SyncState | null,
+      data?: SyncStateData
+    ) => {
+      // When sync completes after being disconnected, reload messages
+      if (
+        state === SyncState.Syncing &&
+        prevState &&
+        [SyncState.Error, SyncState.Reconnecting].includes(prevState)
+      ) {
+        loadMessages();
       }
 
-      // Handle edited messages
-      if (event.getType() === EventType.RoomMessage && event.getPrevContent().body) {
-        const message = convertEventToMessage(event, room, client.baseUrl || '');
-        if (message) {
-          setMessages(prev =>
-            prev.map(m => (m.id === message.id ? { ...message, isEdited: true } : m))
-          );
-        }
-      }
+      // Handle typing indicators
+      if (state === SyncState.Syncing) {
+        const room = client.getRoom(roomId);
+        if (!room) return;
 
-      // Handle deleted messages
-      if (event.getType() === 'm.room.redaction') {
-        const redactedId = event.getAssociatedId();
-        if (redactedId) {
-          setMessages(prev => prev.filter(m => m.id !== redactedId));
-        }
-      }
+        const typingEvent = room.currentState.getStateEvents('m.typing')[0];
+        const typingUserIds = typingEvent ? typingEvent.getContent().user_ids || [] : [];
 
-      // Handle reactions
-      if (event.getType() === EventType.Reaction) {
-        const relation = event.getRelation();
-        if (relation && relation.rel_type === RelationType.Annotation && relation.key) {
-          setMessages(prev =>
-            prev.map(m => {
-              if (m.id === relation.event_id) {
-                const reactions = { ...(m.reactions || {}) };
-                const key = relation.key as string;
-                reactions[key] = (reactions[key] || 0) + 1;
-                return {
-                  ...m,
-                  reactions,
-                };
-              }
-              return m;
+        setTypingUsers(
+          typingUserIds
+            .filter((id: string) => id !== userId)
+            .map((id: string) => {
+              const member = room.getMember(id);
+              return member?.name || id.slice(1).split(':')[0];
             })
-          );
-        }
-      }
-
-      // Handle reaction removals
-      if (event.getType() === EventType.RoomRedaction) {
-        const redactedEvent = room.findEventById(event.getAssociatedId()!);
-        if (redactedEvent?.getType() === EventType.Reaction) {
-          const relation = redactedEvent.getRelation();
-          if (relation && relation.rel_type === RelationType.Annotation && relation.key) {
-            setMessages(prev =>
-              prev.map(m => {
-                if (m.id === relation.event_id) {
-                  const reactions = { ...(m.reactions || {}) };
-                  const key = relation.key as string;
-                  if (reactions[key]) {
-                    reactions[key]--;
-                    if (reactions[key] <= 0) {
-                      delete reactions[key];
-                    }
-                  }
-                  return {
-                    ...m,
-                    reactions,
-                  };
-                }
-                return m;
-              })
-            );
-          }
-        }
+        );
       }
     };
 
-    // Add event listener
-    room.on(RoomEvent.Timeline, onEvent);
-    eventListeners.current.push({ event: RoomEvent.Timeline, listener: onEvent });
+    room.on(RoomEvent.Timeline, handleTimelineEvent);
+    room.on(RoomEvent.Receipt, handleReceiptEvent);
+    client.on(ClientEvent.Sync, handleSyncStateChange);
 
-    // Load initial messages
     loadMessages();
+    handleSyncStateChange(SyncState.Syncing, null); // Initial typing status
 
-    // Cleanup
-    return cleanup;
-  }, [client, isInitialized, roomId, loadMessages, cleanup]);
+    return () => {
+      room.removeListener(RoomEvent.Timeline, handleTimelineEvent);
+      room.removeListener(RoomEvent.Receipt, handleReceiptEvent);
+      client.removeListener(ClientEvent.Sync, handleSyncStateChange);
+      if (typingTimeoutRef.current) {
+        clearTimeout(typingTimeoutRef.current);
+      }
+    };
+  }, [client, isInitialized, roomId, loadMessages, handleReceipt, userId]);
 
   return {
     messages,
@@ -409,7 +684,7 @@ export function useMatrixMessages(roomId: string) {
     sendMessage,
     editMessage,
     deleteMessage,
-    addReaction,
-    removeReaction,
+    typingUsers,
+    handleUserTyping,
   };
 }

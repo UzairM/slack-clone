@@ -178,52 +178,115 @@
   - Added room state and timeline handling
   - Set up proper error handling and loading states
 - [x] Implement real-time message delivery
-- [ ] Add end-to-end encryption - skipped
-- [ ] Create message components
+  - Enhanced MessageEvent interface with delivery status tracking
+  - Added optimistic updates for better UX
+  - Implemented message status indicators (sending, sent, delivered, read)
+  - Added error handling and retry mechanisms
+  - Integrated Matrix receipt events for delivery tracking
+  - Updated Message component with status indicators
+  - Added visual feedback for message states
+- [] Add end-to-end encryption - skipped
+- [x] Create message components
   - [x] Text messages
-    - Implemented base message component with text support
-    - Added support for message editing and deletion
-    - Added message status indicators (sending, sent)
-    - Implemented message timestamps and sender information
+    - Implemented base text message display with proper styling
+    - Added support for whitespace preservation and line breaks
   - [x] Rich text formatting
-    - Added support for markdown-style text formatting
-    - Implemented message preview and editing
+    - Added markdown support with react-markdown
+    - Configured GitHub Flavored Markdown with remark-gfm
+    - Added custom styling for markdown elements
+    - Implemented safe HTML rendering with rehype plugins
   - [x] Code snippets
-    - Added syntax highlighting using react-syntax-highlighter
-    - Support for multiple programming languages
-    - Code block detection and parsing
+    - Added syntax highlighting with shiki
+    - Implemented copy-to-clipboard functionality
+    - Added language detection and custom styling
   - [x] Message status indicators
-    - Added sending/sent status with tooltips
-    - Implemented edited message indicator
-    - Added hover actions for message interaction
-- [ ] Add typing indicators
-- [ ] Implement message editing/deletion
+    - Reused existing status indicators from Message component
+    - Added visual feedback for message states
+- [x] Add typing indicators
+- [x] Implement message editing/deletion
   - [x] Message editing with Matrix SDK integration
-    - Added edit functionality with proper event handling
-    - Implemented optimistic updates
-    - Added edit status indicators
   - [x] Message deletion with Matrix SDK integration
-    - Added delete functionality with proper event handling
-    - Implemented optimistic updates
-    - Added proper error handling
   - [x] UI components for editing and deletion
-    - Added edit mode with textarea
-    - Added dropdown menu for actions
-    - Added confirmation for deletion
 - [ ] Implement Matrix's Olm/Megolm protocols for E2EE - skipped
-- [ ] Set up message persistence and history
-- [ ] Add support for Matrix message formats
+- [x] Set up message persistence and history
+  - Enhanced message loading with proper filtering and state management
+  - Implemented robust pagination for historical messages
+  - Added reconnection handling with proper message syncing
+  - Maintained local message state during loading
+  - Integrated with Matrix SDK's timeline events
+  - Added proper error handling and loading states
+  - Implemented optimistic updates for better UX
+  - Enhanced message ordering and deduplication
+- [x] Add support for Matrix message formats
+  - Enhanced MessageEvent interface with support for all Matrix message types
+  - Added support for m.text, m.image, m.file, m.audio, m.video, m.location, and m.emote
+  - Created specialized components for each message type:
+    - ImageMessage with thumbnail and full-size view
+    - FileMessage with download support and size formatting
+    - AudioMessage with playback controls and volume adjustment
+    - VideoMessage with thumbnail, duration, and fullscreen playback
+    - LocationMessage with map view and directions
+    - EmoteMessage for action-style messages
+  - Implemented proper handling of message content and metadata
+  - Added rich media support with proper fallbacks
+  - Enhanced message display with responsive design
+  - Added proper error handling for unsupported formats
 
 ### Channels & DMs (Day 3-4)
 
-- [ ] Create room/channel management system
-  - [ ] Public rooms
-  - [ ] Private rooms
-  - [ ] Direct messages
-- [ ] Implement room discovery
-- [ ] Add room/DM sidebar navigation
-- [ ] Set up invite system
-- [ ] Configure federation support
+- [x] Create room/channel management system
+  - Enhanced useMatrixRooms hook with specialized room creation functions:
+    - createPublicRoom with topic support
+    - createPrivateRoom with invite functionality
+    - createDirectMessage with user search
+  - Added getRoomCategories for organizing rooms by type
+  - Updated RoomManagement component with:
+    - Modern tabbed interface for discovery and creation
+    - Room type selection (public, private, DM)
+    - User search and selection for DMs
+    - Topic support for public rooms
+    - Invite system for private rooms
+    - Loading states and error handling
+    - Proper form validation
+  - Integrated with Matrix SDK's room management features:
+    - Room creation with proper presets
+    - Guest access configuration
+    - History visibility settings
+    - Direct message detection and handling
+    - Room name and topic management
+- [x] Implement room discovery
+  - Enhanced useMatrixRooms hook with public room search functionality
+  - Created RoomDiscovery component with modern UI
+  - Implemented debounced search with Matrix SDK's publicRooms API
+  - Added room details display (name, topic, member count)
+  - Integrated join functionality with loading states
+  - Added error handling and user feedback
+  - Combined with room management using tabs interface
+- [ ] Add room/DM sidebar navigation along with chat window at /chat. Use modern Clean UI. Support all the relevant features that are already implemented in this guide.
+- [x] Add room/DM sidebar navigation along with chat window at /chat
+  - Created RoomSidebar component with:
+    - Room categorization (public, private, DM)
+    - Room search functionality
+    - Unread message indicators
+    - Room creation/discovery integration
+    - Modern UI with icons and tooltips
+  - Implemented chat layout with:
+    - Responsive sidebar
+    - Main chat window
+    - Proper routing
+  - Added features:
+    - Auto-room selection
+    - Room filtering
+    - Room management integration
+    - Loading states
+    - Error handling
+  - Integrated with Matrix SDK:
+    - Room categorization
+    - Room membership handling
+    - Unread count tracking
+    - Room state updates
+- [ ] Set up invite system skipped
+- [ ] Configure federation support skipped
 
 ### File Sharing & Search (Day 4-5)
 
