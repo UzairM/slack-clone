@@ -13,6 +13,37 @@ interface RoomDiscoveryProps {
   className?: string;
 }
 
+function LoadingPulse() {
+  return (
+    <div className="flex h-full flex-col items-center justify-center space-y-4 p-8">
+      <div className="space-y-3">
+        <div className="flex items-center justify-center">
+          <div className="h-12 w-12 rounded-full bg-primary/10">
+            <div className="h-full w-full animate-pulse rounded-full bg-primary/20" />
+          </div>
+        </div>
+        <div className="space-y-2 text-center">
+          <div className="text-sm font-medium text-muted-foreground">Connecting to server</div>
+          <div className="flex justify-center space-x-1">
+            <div
+              className="h-1.5 w-1.5 animate-bounce rounded-full bg-primary/50"
+              style={{ animationDelay: '0ms' }}
+            />
+            <div
+              className="h-1.5 w-1.5 animate-bounce rounded-full bg-primary/50"
+              style={{ animationDelay: '150ms' }}
+            />
+            <div
+              className="h-1.5 w-1.5 animate-bounce rounded-full bg-primary/50"
+              style={{ animationDelay: '300ms' }}
+            />
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function RoomDiscovery({ className }: RoomDiscoveryProps) {
   const { publicRooms, isLoadingPublicRooms, publicRoomsError, searchPublicRooms, joinRoom } =
     useMatrixRooms();
@@ -42,7 +73,15 @@ export function RoomDiscovery({ className }: RoomDiscoveryProps) {
 
   // Initial load
   useEffect(() => {
-    searchPublicRooms();
+    const loadRooms = async () => {
+      try {
+        await searchPublicRooms();
+      } catch (error) {
+        // Error is already handled in the hook
+        console.warn('Initial room load failed:', error);
+      }
+    };
+    loadRooms();
   }, [searchPublicRooms]);
 
   const handleJoinRoom = async (roomId: string) => {
@@ -51,6 +90,7 @@ export function RoomDiscovery({ className }: RoomDiscoveryProps) {
       await joinRoom(roomId);
       toast.success('Joined room successfully');
     } catch (error: any) {
+      console.error('Failed to join room:', error);
       toast.error(error.message || 'Failed to join room');
     } finally {
       setJoiningRoomId(null);
@@ -69,10 +109,17 @@ export function RoomDiscovery({ className }: RoomDiscoveryProps) {
         />
       </div>
 
-      {publicRoomsError && <div className="text-sm text-destructive">{publicRoomsError}</div>}
+      {publicRoomsError && (
+        <div className="flex items-center justify-center space-x-2 text-sm text-muted-foreground">
+          <Loader2 className="h-4 w-4 animate-spin" />
+          <span>{publicRoomsError}</span>
+        </div>
+      )}
 
       <ScrollArea className="h-[400px] rounded-md border">
-        {isLoadingPublicRooms ? (
+        {publicRoomsError ? (
+          <LoadingPulse />
+        ) : isLoadingPublicRooms ? (
           <div className="flex h-full items-center justify-center">
             <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
           </div>
@@ -106,10 +153,11 @@ export function RoomDiscovery({ className }: RoomDiscoveryProps) {
                   )}
                 </div>
                 <Button
-                  variant="outline"
+                  variant="default"
                   size="sm"
                   onClick={() => handleJoinRoom(room.id)}
                   disabled={joiningRoomId === room.id}
+                  className="min-w-[80px] font-medium"
                 >
                   {joiningRoomId === room.id ? (
                     <>

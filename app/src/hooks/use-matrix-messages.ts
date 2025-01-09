@@ -12,12 +12,30 @@ import {
   RelationType,
   Room,
   RoomEvent,
+  RoomMemberEvent,
   SyncState,
-  SyncStateData,
   TimelineWindow,
 } from 'matrix-js-sdk';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
+
+interface ReactionMap {
+  [key: string]: {
+    count: number;
+    userIds: string[];
+  };
+}
+
+interface ThreadSummary {
+  latestReply?: {
+    id: string;
+    content: string;
+    sender: string;
+    timestamp: number;
+  };
+  replyCount: number;
+  isUnread: boolean;
+}
 
 interface MessageEvent {
   id: string;
@@ -30,6 +48,17 @@ interface MessageEvent {
   isEdited?: boolean;
   editedTimestamp?: number;
   originalContent?: string;
+  reactions?: ReactionMap;
+  // Thread support
+  threadId?: string; // If this message is part of a thread, this is the root message ID
+  isThreadRoot?: boolean; // If this message is the start of a thread
+  thread?: ThreadSummary; // Thread summary for root messages
+  replyTo?: {
+    // If this message is a reply to another message
+    id: string;
+    content: string;
+    sender: string;
+  };
   // Additional fields for rich content
   mimeType?: string;
   fileName?: string;
@@ -53,8 +82,12 @@ export function useMatrixMessages(roomId: string) {
   const [hasMore, setHasMore] = useState(true);
   const [localMessages, setLocalMessages] = useState<Map<string, MessageEvent>>(new Map());
   const [typingUsers, setTypingUsers] = useState<string[]>([]);
+  const [isSynced, setIsSynced] = useState(false);
   const typingTimeoutRef = useRef<NodeJS.Timeout>();
   const timelineWindowRef = useRef<TimelineWindow>();
+  const retryTimeoutRef = useRef<NodeJS.Timeout>();
+  const maxRetries = 5;
+  const [retryCount, setRetryCount] = useState(0);
 
   // Convert Matrix event to message
   const convertEvent = useCallback(
@@ -90,6 +123,84 @@ export function useMatrixMessages(roomId: string) {
       const content = event.getContent();
       const msgtype = content.msgtype as MessageEvent['type'];
 
+      // Get thread information
+      const relation = event.getRelation();
+      const isThreaded = relation?.rel_type === 'm.thread';
+      const threadId = isThreaded ? relation.event_id : undefined;
+      const room = client?.getRoom(event.getRoomId() || '');
+      const isThreadRoot = !threadId && (event.getThread()?.events?.length ?? 0) > 0;
+
+      // Get thread summary for root messages
+      let thread: ThreadSummary | undefined;
+      if (isThreadRoot && room) {
+        const threadEvents = event.getThread()?.events ?? [];
+        const latestReply = threadEvents[threadEvents.length - 1];
+        thread = {
+          replyCount: threadEvents.length,
+          isUnread: threadEvents.some(
+            (e: MatrixEvent) => !room.hasUserReadEvent(userId || '', e.getId() || '')
+          ),
+          ...(latestReply && {
+            latestReply: {
+              id: latestReply.getId() || '',
+              content: latestReply.getContent().body || '',
+              sender: latestReply.getSender() || '',
+              timestamp: latestReply.getTs(),
+            },
+          }),
+        };
+      }
+
+      // Get reply information
+      let replyTo: MessageEvent['replyTo'];
+      const replyToEvent = content['m.relates_to']?.['m.in_reply_to']?.event_id;
+      if (replyToEvent && room) {
+        const originalEvent = room.findEventById(replyToEvent);
+        if (originalEvent) {
+          replyTo = {
+            id: replyToEvent,
+            content: originalEvent.getContent().body || '',
+            sender: originalEvent.getSender() || '',
+          };
+        }
+      }
+
+      // Get reactions for the event
+      let reactions: ReactionMap = {};
+
+      if (room && event.getId()) {
+        // Get all events in the room's timeline
+        const timeline = room.getLiveTimeline();
+        const timelineEvents = timeline.getEvents();
+
+        // Filter for reaction events related to this message
+        const reactionEvents = timelineEvents.filter(e => {
+          const relation = e.getRelation();
+          return (
+            e.getType() === EventType.Reaction &&
+            relation?.rel_type === RelationType.Annotation &&
+            relation?.event_id === event.getId()
+          );
+        });
+
+        // Group reactions by emoji
+        reactions = reactionEvents.reduce((acc: ReactionMap, e: MatrixEvent) => {
+          const key = e.getRelation()?.key || '';
+          if (!acc[key]) {
+            acc[key] = {
+              count: 0,
+              userIds: [],
+            };
+          }
+          acc[key].count++;
+          const sender = e.getSender();
+          if (sender && !acc[key].userIds.includes(sender)) {
+            acc[key].userIds.push(sender);
+          }
+          return acc;
+        }, {});
+      }
+
       // Base message properties
       const baseMessage = {
         id: event.getId() || '',
@@ -100,6 +211,11 @@ export function useMatrixMessages(roomId: string) {
         isEdited: !!replacingEvent,
         editedTimestamp: replacingEvent?.getTs(),
         originalContent: replaces ? originalEvent?.getContent().body : undefined,
+        reactions,
+        threadId,
+        isThreadRoot,
+        thread,
+        replyTo,
       };
 
       // Handle different message types
@@ -178,7 +294,7 @@ export function useMatrixMessages(roomId: string) {
           };
       }
     },
-    [client]
+    [client, userId]
   );
 
   // Update message status
@@ -216,12 +332,23 @@ export function useMatrixMessages(roomId: string) {
   // Load messages
   const loadMessages = useCallback(
     async (limit = 50) => {
-      if (!client || !isInitialized) return;
+      if (!client || !isInitialized) {
+        console.warn('Cannot load messages: Client not initialized');
+        setError('Chat client not initialized');
+        return;
+      }
 
       try {
         setIsLoading(true);
+        setError(null);
+
         const room = client.getRoom(roomId);
-        if (!room) throw new Error('Room not found');
+        if (!room) {
+          console.error('Room not found:', roomId);
+          throw new Error('Room not found');
+        }
+
+        console.log('Loading messages for room:', roomId);
 
         // Get timeline events
         const timeline = room.getLiveTimeline();
@@ -245,17 +372,164 @@ export function useMatrixMessages(roomId: string) {
 
         setMessages(allMessages);
         setHasMore(events.length >= limit);
-        setError(null);
       } catch (err: any) {
         console.error('Failed to load messages:', err);
         setError(err.message || 'Failed to load messages');
-        toast.error('Failed to load messages');
       } finally {
         setIsLoading(false);
       }
     },
     [client, isInitialized, roomId, convertEvent, localMessages]
   );
+
+  // Handle sync state changes
+  useEffect(() => {
+    if (!client || !isInitialized) return;
+
+    const handleSyncStateChange = (state: SyncState) => {
+      if (state === SyncState.Prepared) {
+        loadMessages();
+      }
+    };
+
+    client.on(ClientEvent.Sync, handleSyncStateChange);
+
+    // Initial load
+    loadMessages();
+
+    return () => {
+      client.removeListener(ClientEvent.Sync, handleSyncStateChange);
+    };
+  }, [client, isInitialized, loadMessages]);
+
+  // Send typing notification
+  const sendTypingNotification = useCallback(
+    async (isTyping: boolean) => {
+      if (!client || !isInitialized) {
+        console.log('Cannot send typing notification: client not ready', { client, isInitialized });
+        return;
+      }
+
+      try {
+        console.log('Sending typing notification:', {
+          roomId,
+          isTyping,
+          userId,
+          timeout: isTyping ? 4000 : 0,
+        });
+
+        await client.sendTyping(roomId, isTyping, isTyping ? 4000 : 0);
+
+        // Check if typing state was updated
+        const room = client.getRoom(roomId);
+        const typingEvents = room?.currentState.getStateEvents('m.typing', '');
+        const typingEvent = Array.isArray(typingEvents) ? typingEvents[0] : typingEvents;
+        const typingContent = typingEvent?.getContent() || {};
+
+        console.log('Typing notification sent, current state:', {
+          success: true,
+          typingContent,
+          currentTypingUsers: typingContent.user_ids || [],
+        });
+      } catch (error) {
+        console.error('Failed to send typing notification:', error);
+      }
+    },
+    [client, isInitialized, roomId, userId]
+  );
+
+  // Handle user typing with debounce
+  const handleUserTyping = useCallback(() => {
+    console.log('User typing detected');
+    if (typingTimeoutRef.current) {
+      console.log('Clearing previous typing timeout');
+      clearTimeout(typingTimeoutRef.current);
+    }
+
+    sendTypingNotification(true);
+
+    console.log('Setting typing timeout for 4 seconds');
+    typingTimeoutRef.current = setTimeout(() => {
+      console.log('Typing timeout reached, sending stop typing notification');
+      sendTypingNotification(false);
+    }, 4000);
+  }, [sendTypingNotification]);
+
+  // Listen for room events
+  useEffect(() => {
+    if (!client || !isInitialized) return;
+
+    const room = client.getRoom(roomId);
+    if (!room) {
+      console.warn('Room not found:', roomId);
+      return;
+    }
+
+    console.log('Setting up room event listeners for room:', roomId);
+
+    const handleTimelineEvent = (event: MatrixEvent) => {
+      if (event.getRoomId() !== roomId) return;
+      loadMessages();
+    };
+
+    const handleReceiptEvent = (event: MatrixEvent, room: Room) => {
+      handleReceipt(event, room);
+    };
+
+    const handleTypingEvent = (_event: any, member: any) => {
+      console.log('Typing event received:', { member, roomId: member?.roomId });
+      if (member.roomId !== roomId) {
+        console.log('Ignoring typing event for different room');
+        return;
+      }
+
+      // Ignore typing events from the current user
+      if (member.userId === userId) {
+        console.log('Ignoring typing event from current user');
+        return;
+      }
+
+      const room = client.getRoom(roomId);
+      if (!room) {
+        console.log('Room not found for typing event');
+        return;
+      }
+
+      // Update typing users based on the member's typing state
+      setTypingUsers(prev => {
+        const newTypingUsers = member.typing
+          ? [...prev, member.name || member.userId.slice(1).split(':')[0]]
+          : prev.filter(name => name !== (member.name || member.userId.slice(1).split(':')[0]));
+
+        console.log('Processing typing event:', {
+          member,
+          memberTyping: member.typing,
+          memberName: member.name,
+          memberId: member.userId,
+          currentUserId: userId,
+          previousTypingUsers: prev,
+          newTypingUsers,
+        });
+
+        return newTypingUsers;
+      });
+    };
+
+    room.on(RoomEvent.Timeline, handleTimelineEvent);
+    room.on(RoomEvent.Receipt, handleReceiptEvent);
+    client.on(RoomMemberEvent.Typing, handleTypingEvent);
+
+    // Initial check for typing users
+    console.log('Performing initial typing check');
+    handleTypingEvent(null, { roomId });
+
+    return () => {
+      console.log('Cleaning up room event listeners');
+      room.removeListener(RoomEvent.Timeline, handleTimelineEvent);
+      room.removeListener(RoomEvent.Receipt, handleReceiptEvent);
+      client.removeListener(RoomMemberEvent.Typing, handleTypingEvent);
+    };
+  }, [client, isInitialized, roomId, loadMessages, handleReceipt, userId]);
 
   // Load more messages
   const loadMore = useCallback(async () => {
@@ -306,10 +580,11 @@ export function useMatrixMessages(roomId: string) {
     }
   }, [client, isInitialized, hasMore, roomId, isLoading, convertEvent]);
 
-  // Send message with optimistic updates
+  // Send message with thread support
   const sendMessage = useCallback(
-    async (content: string, replyTo?: string) => {
+    async (content: string, options?: { threadId?: string; replyTo?: string }) => {
       if (!client || !isInitialized) throw new Error('Client not initialized');
+      if (!isSynced) throw new Error('Client sync not ready');
 
       // Create optimistic message
       const optimisticId = `local-${Date.now()}`;
@@ -320,6 +595,14 @@ export function useMatrixMessages(roomId: string) {
         timestamp: Date.now(),
         type: MsgType.Text,
         status: 'sending',
+        threadId: options?.threadId,
+        replyTo: options?.replyTo
+          ? {
+              id: options.replyTo,
+              content: messages.find(m => m.id === options.replyTo)?.content || '',
+              sender: messages.find(m => m.id === options.replyTo)?.sender || '',
+            }
+          : undefined,
       };
 
       // Add to local messages
@@ -330,20 +613,31 @@ export function useMatrixMessages(roomId: string) {
         const room = client.getRoom(roomId);
         if (!room) throw new Error('Room not found');
 
-        let result;
-        if (replyTo) {
-          result = await client.sendEvent(roomId, EventType.RoomMessage, {
-            msgtype: MsgType.Text,
-            body: content,
-            'm.relates_to': {
-              'm.in_reply_to': {
-                event_id: replyTo,
-              },
-            },
-          });
-        } else {
-          result = await client.sendTextMessage(roomId, content);
+        // Prepare message content with thread/reply relations
+        const messageContent: any = {
+          msgtype: MsgType.Text,
+          body: content,
+        };
+
+        // Add thread relation if this is a thread reply
+        if (options?.threadId) {
+          messageContent['m.relates_to'] = {
+            rel_type: 'm.thread',
+            event_id: options.threadId,
+          };
         }
+
+        // Add reply relation if this is a reply
+        if (options?.replyTo) {
+          if (!messageContent['m.relates_to']) {
+            messageContent['m.relates_to'] = {};
+          }
+          messageContent['m.relates_to']['m.in_reply_to'] = {
+            event_id: options.replyTo,
+          };
+        }
+
+        const result = await client.sendEvent(roomId, EventType.RoomMessage, messageContent);
 
         // Update local message with real ID
         setLocalMessages(prev => {
@@ -361,7 +655,166 @@ export function useMatrixMessages(roomId: string) {
         throw err;
       }
     },
-    [client, isInitialized, roomId, userId, updateMessageStatus]
+    [client, isInitialized, isSynced, roomId, userId, updateMessageStatus, messages]
+  );
+
+  // Upload file and send as message
+  const uploadFile = useCallback(
+    async (file: File) => {
+      if (!client || !isInitialized) throw new Error('Client not initialized');
+      if (!isSynced) throw new Error('Client sync not ready');
+
+      // Create optimistic message ID
+      const optimisticId = `local-${Date.now()}`;
+
+      try {
+        // Create optimistic message
+        const optimisticMessage: MessageEvent = {
+          id: optimisticId,
+          content: `Uploading ${file.name}...`,
+          sender: userId || '',
+          timestamp: Date.now(),
+          type: file.type.startsWith('image/')
+            ? 'm.image'
+            : file.type.startsWith('video/')
+              ? 'm.video'
+              : file.type.startsWith('audio/')
+                ? 'm.audio'
+                : 'm.file',
+          status: 'sending',
+          fileName: file.name,
+          fileSize: file.size,
+          mimeType: file.type,
+        };
+
+        // Add to local messages
+        setLocalMessages(prev => new Map(prev).set(optimisticId, optimisticMessage));
+        setMessages(prev => [...prev, optimisticMessage]);
+
+        // Create upload progress handler
+        const progressHandler = (progress: { loaded: number; total: number }) => {
+          const percentage = Math.round((progress.loaded / progress.total) * 100);
+          // Update optimistic message with progress
+          setMessages(prev =>
+            prev.map(msg =>
+              msg.id === optimisticId
+                ? {
+                    ...msg,
+                    content: `Uploading ${file.name} (${percentage}%)...`,
+                  }
+                : msg
+            )
+          );
+        };
+
+        // Upload the file
+        const uploadResponse = await client.uploadContent(file, {
+          progressHandler,
+        });
+
+        if (!uploadResponse?.content_uri) {
+          throw new Error('Failed to upload file: No content URI received');
+        }
+
+        // Prepare message content based on file type
+        let messageContent: any = {
+          msgtype: file.type.startsWith('image/')
+            ? 'm.image'
+            : file.type.startsWith('video/')
+              ? 'm.video'
+              : file.type.startsWith('audio/')
+                ? 'm.audio'
+                : 'm.file',
+          body: file.name,
+          filename: file.name,
+          info: {
+            size: file.size,
+            mimetype: file.type,
+          },
+          url: uploadResponse.content_uri,
+        };
+
+        // Add file type specific properties
+        if (file.type.startsWith('image/')) {
+          // Get image dimensions
+          const img = new Image();
+          await new Promise((resolve, reject) => {
+            img.onload = resolve;
+            img.onerror = reject;
+            img.src = URL.createObjectURL(file);
+          });
+          messageContent.info.w = img.width;
+          messageContent.info.h = img.height;
+          URL.revokeObjectURL(img.src);
+        } else if (file.type.startsWith('video/')) {
+          const video = document.createElement('video');
+          await new Promise((resolve, reject) => {
+            video.onloadedmetadata = resolve;
+            video.onerror = reject;
+            video.src = URL.createObjectURL(file);
+          });
+          messageContent.info.duration = Math.round(video.duration * 1000);
+          URL.revokeObjectURL(video.src);
+        } else if (file.type.startsWith('audio/')) {
+          const audio = document.createElement('audio');
+          await new Promise((resolve, reject) => {
+            audio.onloadedmetadata = resolve;
+            audio.onerror = reject;
+            audio.src = URL.createObjectURL(file);
+          });
+          messageContent.info.duration = Math.round(audio.duration * 1000);
+          URL.revokeObjectURL(audio.src);
+        }
+
+        // Send the message
+        const result = await client.sendMessage(roomId, messageContent);
+
+        if (!result?.event_id) {
+          throw new Error('Failed to send message: No event ID received');
+        }
+
+        // Update local message with real ID
+        setLocalMessages(prev => {
+          const updated = new Map(prev);
+          updated.delete(optimisticId);
+          return updated;
+        });
+
+        // Update message status
+        setMessages(prev =>
+          prev.map(msg =>
+            msg.id === optimisticId
+              ? {
+                  ...msg,
+                  id: result.event_id,
+                  content: file.name,
+                  status: 'sent',
+                  mediaUrl: uploadResponse.content_uri,
+                }
+              : msg
+          )
+        );
+
+        return result;
+      } catch (err: any) {
+        console.error('Failed to upload file:', err);
+        // Update message status to error
+        setMessages(prev =>
+          prev.map(msg =>
+            msg.id === optimisticId
+              ? {
+                  ...msg,
+                  content: `Failed to upload ${file.name}`,
+                  status: 'error',
+                  error: err.message || 'Failed to upload file',
+                }
+              : msg
+          )
+        );
+        throw err;
+      }
+    },
+    [client, isInitialized, isSynced, roomId, userId]
   );
 
   // Edit message with optimistic update
@@ -495,52 +948,6 @@ export function useMatrixMessages(roomId: string) {
     [client, isInitialized, roomId, userId]
   );
 
-  // Handle typing events
-  const handleTyping = useCallback(
-    (event: MatrixEvent, room: Room) => {
-      if (room.roomId !== roomId) return;
-      const typingUserIds = room.currentState
-        .getStateEvents('m.typing')
-        .flatMap(event => event.getContent().user_ids || [])
-        .filter((id: string) => id !== userId);
-
-      setTypingUsers(
-        typingUserIds.map((id: string) => {
-          const member = room.getMember(id);
-          return member?.name || id.slice(1).split(':')[0];
-        })
-      );
-    },
-    [roomId, userId]
-  );
-
-  // Send typing notification
-  const sendTypingNotification = useCallback(
-    async (isTyping: boolean) => {
-      if (!client || !isInitialized) return;
-
-      try {
-        await client.sendTyping(roomId, isTyping, isTyping ? 4000 : 0);
-      } catch (error) {
-        console.error('Failed to send typing notification:', error);
-      }
-    },
-    [client, isInitialized, roomId]
-  );
-
-  // Handle user typing with debounce
-  const handleUserTyping = useCallback(() => {
-    if (typingTimeoutRef.current) {
-      clearTimeout(typingTimeoutRef.current);
-    }
-
-    sendTypingNotification(true);
-
-    typingTimeoutRef.current = setTimeout(() => {
-      sendTypingNotification(false);
-    }, 4000);
-  }, [sendTypingNotification]);
-
   // Handle timeline events
   const handleTimelineEvent = useCallback(
     (event: MatrixEvent) => {
@@ -609,72 +1016,6 @@ export function useMatrixMessages(roomId: string) {
     [roomId, loadMessages, client, convertEvent]
   );
 
-  // Listen for room events
-  useEffect(() => {
-    if (!client || !isInitialized) return;
-
-    const room = client.getRoom(roomId);
-    if (!room) return;
-
-    const handleTimelineEvent = (event: MatrixEvent) => {
-      if (event.getRoomId() !== roomId) return;
-      loadMessages();
-    };
-
-    const handleReceiptEvent = (event: MatrixEvent, room: Room) => {
-      handleReceipt(event, room);
-    };
-
-    const handleSyncStateChange = (
-      state: SyncState,
-      prevState: SyncState | null,
-      data?: SyncStateData
-    ) => {
-      // When sync completes after being disconnected, reload messages
-      if (
-        state === SyncState.Syncing &&
-        prevState &&
-        [SyncState.Error, SyncState.Reconnecting].includes(prevState)
-      ) {
-        loadMessages();
-      }
-
-      // Handle typing indicators
-      if (state === SyncState.Syncing) {
-        const room = client.getRoom(roomId);
-        if (!room) return;
-
-        const typingEvent = room.currentState.getStateEvents('m.typing')[0];
-        const typingUserIds = typingEvent ? typingEvent.getContent().user_ids || [] : [];
-
-        setTypingUsers(
-          typingUserIds
-            .filter((id: string) => id !== userId)
-            .map((id: string) => {
-              const member = room.getMember(id);
-              return member?.name || id.slice(1).split(':')[0];
-            })
-        );
-      }
-    };
-
-    room.on(RoomEvent.Timeline, handleTimelineEvent);
-    room.on(RoomEvent.Receipt, handleReceiptEvent);
-    client.on(ClientEvent.Sync, handleSyncStateChange);
-
-    loadMessages();
-    handleSyncStateChange(SyncState.Syncing, null); // Initial typing status
-
-    return () => {
-      room.removeListener(RoomEvent.Timeline, handleTimelineEvent);
-      room.removeListener(RoomEvent.Receipt, handleReceiptEvent);
-      client.removeListener(ClientEvent.Sync, handleSyncStateChange);
-      if (typingTimeoutRef.current) {
-        clearTimeout(typingTimeoutRef.current);
-      }
-    };
-  }, [client, isInitialized, roomId, loadMessages, handleReceipt, userId]);
-
   return {
     messages,
     isLoading,
@@ -684,7 +1025,10 @@ export function useMatrixMessages(roomId: string) {
     sendMessage,
     editMessage,
     deleteMessage,
+    addReaction,
+    removeReaction,
     typingUsers,
     handleUserTyping,
+    uploadFile,
   };
 }

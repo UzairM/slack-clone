@@ -1,11 +1,11 @@
 import { useMatrix } from '@/hooks/use-matrix';
 import {
   ClientEvent,
-  EventType,
   MatrixEvent,
   Preset,
   Room,
   RoomEvent,
+  SyncState,
   Visibility,
 } from 'matrix-js-sdk';
 import { useCallback, useEffect, useState } from 'react';
@@ -44,7 +44,7 @@ export function useMatrixRooms() {
 
   // Convert Matrix room to RoomInfo
   const convertRoom = useCallback(
-    (room: Room): RoomInfo => {
+    (room: Room, publicRoomInfo?: { name: string }): RoomInfo => {
       const timeline = room.getLiveTimeline().getEvents();
       const lastEvent = timeline.length > 0 ? timeline[timeline.length - 1] : null;
       const isDirect = room.getDMInviter() !== null;
@@ -53,9 +53,29 @@ export function useMatrixRooms() {
         ? (topicEvent[0] as MatrixEvent)?.getContent().topic
         : (topicEvent as MatrixEvent)?.getContent().topic;
 
+      // Get room name from state event
+      const nameEvent = room.currentState.getStateEvents('m.room.name', '');
+      const nameFromState = Array.isArray(nameEvent)
+        ? nameEvent[0]?.getContent().name
+        : nameEvent?.getContent().name;
+
+      // Get canonical alias
+      const aliasEvent = room.currentState.getStateEvents('m.room.canonical_alias', '');
+      const canonicalAlias = Array.isArray(aliasEvent)
+        ? aliasEvent[0]?.getContent().alias
+        : aliasEvent?.getContent().alias;
+
+      // Use name in priority order
+      const roomName =
+        publicRoomInfo?.name ||
+        nameFromState ||
+        room.name ||
+        (canonicalAlias ? canonicalAlias.split(':')[0].substring(1) : null) ||
+        'Unnamed Room';
+
       return {
         id: room.roomId,
-        name: room.name,
+        name: roomName,
         topic,
         avatarUrl: room.getAvatarUrl(client?.baseUrl || '', 96, 96, 'crop') || undefined,
         isDirect,
@@ -176,20 +196,11 @@ export function useMatrixRooms() {
     if (!client) throw new Error('Matrix client not initialized');
 
     try {
-      // Log the client state
-      console.log('Matrix Client State:', {
-        baseUrl: client.baseUrl,
-        isLoggedIn: client.isLoggedIn(),
-        userId: client.getUserId(),
-        accessToken: client.getAccessToken()?.slice(0, 10) + '...', // Log partial token for debugging
-      });
-
-      // Create room with correct preset and visibility
       const createRoomOptions = {
         name,
         topic,
-        visibility: 'public' as Visibility,
-        preset: 'public_chat' as Preset,
+        visibility: Visibility.Public,
+        preset: Preset.PublicChat,
         room_alias_name: name.toLowerCase().replace(/\s+/g, '-'),
         creation_content: {
           'm.federate': true,
@@ -216,89 +227,17 @@ export function useMatrixRooms() {
               guest_access: 'can_join',
             },
           },
-          {
-            type: 'm.room.name',
-            state_key: '',
-            content: {
-              name,
-            },
-          },
-          {
-            type: 'm.room.visibility',
-            state_key: '',
-            content: {
-              visibility: 'public',
-            },
-          },
         ],
-        // Set power levels to ensure proper permissions
-        power_level_content_override: {
-          users_default: 0,
-          events_default: 0,
-          state_default: 50,
-          ban: 50,
-          kick: 50,
-          redact: 50,
-          invite: 0,
-        },
       };
-
-      console.log('Creating public room with options:', JSON.stringify(createRoomOptions, null, 2));
 
       // Create the room
       const result = await client.createRoom(createRoomOptions);
-      console.log('Room creation result:', result);
 
-      // Wait for room state to be properly set
-      await new Promise(resolve => setTimeout(resolve, 2000));
+      // Set room name
+      await client.setRoomName(result.room_id, name);
 
-      // Get the room and verify its state
-      const room = client.getRoom(result.room_id);
-      if (!room) {
-        throw new Error('Room not found after creation');
-      }
-
-      // Get state events
-      const getStateEvent = (eventType: string) => {
-        const events = room.currentState.getStateEvents(eventType, '');
-        if (Array.isArray(events) && events.length > 0) {
-          return events[0];
-        }
-        return events;
-      };
-
-      // Log room state for debugging
-      const roomState = {
-        roomId: result.room_id,
-        name: room.name,
-        canonicalAlias: room.getCanonicalAlias(),
-        joinRule: getStateEvent('m.room.join_rules')?.getContent(),
-        historyVisibility: getStateEvent('m.room.history_visibility')?.getContent(),
-        guestAccess: getStateEvent('m.room.guest_access')?.getContent(),
-        visibility: getStateEvent('m.room.visibility')?.getContent(),
-      };
-
-      console.log('Room state after creation:', roomState);
-
-      // If room name is not set correctly, set it explicitly
-      if (room.name !== name) {
-        console.log('Setting room name explicitly...');
-        await client.sendStateEvent(
-          result.room_id,
-          'm.room.name' as EventType,
-          {
-            name: name,
-          },
-          ''
-        );
-
-        // Wait for state update
-        await new Promise(resolve => setTimeout(resolve, 1000));
-
-        // Verify name update
-        const updatedRoom = client.getRoom(result.room_id);
-        console.log('Room name after explicit update:', updatedRoom?.name);
-      }
+      // Publish to directory
+      await client.setRoomDirectoryVisibility(result.room_id, Visibility.Public);
 
       // Force an immediate room list update
       await updateRooms();
@@ -312,56 +251,43 @@ export function useMatrixRooms() {
 
   // Get room categories
   const getRoomCategories = useCallback(() => {
-    if (!rooms.length) return { publicRooms: [], privateRooms: [], directMessages: [] };
-
-    // Temporarily log the access token
-    console.log('Current access token:', client?.getAccessToken());
+    if (!rooms.length)
+      return {
+        publicRooms: [],
+        privateRooms: [],
+        directMessages: [],
+        myRooms: [],
+      };
 
     return rooms.reduce(
       (acc, room) => {
         const matrixRoom = client?.getRoom(room.id);
+
         if (!matrixRoom) {
-          console.warn('Room not found in Matrix client:', room.id);
+          acc.publicRooms.push(room);
           return acc;
         }
 
-        // Get room state events
         const joinRulesEvent = matrixRoom.currentState.getStateEvents('m.room.join_rules', '');
         const visibilityEvent = matrixRoom.currentState.getStateEvents('m.room.visibility', '');
         const createEvent = matrixRoom.currentState.getStateEvents('m.room.create', '');
 
-        // Get content from state events
-        const getEventContent = (event: MatrixEvent | MatrixEvent[] | null) => {
-          if (Array.isArray(event) && event.length > 0) {
-            return event[0].getContent();
-          }
-          if (event && !Array.isArray(event)) {
-            return event.getContent();
-          }
-          return null;
-        };
+        const joinRule = Array.isArray(joinRulesEvent)
+          ? joinRulesEvent[0]?.getContent().join_rule
+          : joinRulesEvent?.getContent().join_rule;
+        const visibility = Array.isArray(visibilityEvent)
+          ? visibilityEvent[0]?.getContent().visibility
+          : visibilityEvent?.getContent().visibility;
+        const isDirect = Array.isArray(createEvent)
+          ? createEvent[0]?.getContent().is_direct === true
+          : createEvent?.getContent().is_direct === true;
 
-        const joinRule = getEventContent(joinRulesEvent)?.join_rule;
-        const visibility = getEventContent(visibilityEvent)?.visibility;
-        const isDirect = getEventContent(createEvent)?.is_direct === true;
+        const membership = matrixRoom.getMyMembership();
 
-        console.log('Room categorization details:', {
-          roomId: room.id,
-          roomName: room.name,
-          joinRule,
-          visibility,
-          isDirect,
-          createEvent: getEventContent(createEvent),
-          stateEvents: {
-            joinRules: !!joinRulesEvent,
-            visibility: !!visibilityEvent,
-            create: !!createEvent,
-          },
-        });
-
-        // Categorize room
         if (isDirect) {
           acc.directMessages.push(room);
+        } else if (membership === 'join') {
+          acc.myRooms.push(room);
         } else if (joinRule === 'public' || visibility === 'public') {
           acc.publicRooms.push(room);
         } else {
@@ -374,44 +300,63 @@ export function useMatrixRooms() {
         publicRooms: [] as RoomInfo[],
         privateRooms: [] as RoomInfo[],
         directMessages: [] as RoomInfo[],
+        myRooms: [] as RoomInfo[],
       }
     );
   }, [rooms, client]);
 
-  // Update rooms list
+  // Update rooms list - now with optimized filtering
   const updateRooms = useCallback(async () => {
     if (!client) return;
 
     try {
-      // Get joined rooms
-      const joinedRooms = client.getRooms();
-      const joinedRoomInfos = joinedRooms
-        .filter(room => room.getMyMembership() === 'join')
-        .map(convertRoom);
+      const allKnownRooms = client.getRooms();
 
-      // Get available public rooms
-      const publicRoomsResponse = await client.publicRooms({
-        limit: 50,
-      });
+      // Get all rooms the user has access to
+      const accessibleRoomInfos = allKnownRooms
+        .filter(room => {
+          const membership = room.getMyMembership();
+          const joinRulesEvent = room.currentState.getStateEvents('m.room.join_rules', '');
+          const joinRule = Array.isArray(joinRulesEvent)
+            ? joinRulesEvent[0]?.getContent().join_rule
+            : joinRulesEvent?.getContent().join_rule;
 
-      // Convert public rooms to RoomInfo format
-      const publicRoomInfos: RoomInfo[] = publicRoomsResponse.chunk
-        .filter(room => !joinedRoomInfos.some(joined => joined.id === room.room_id))
-        .map(room => ({
-          id: room.room_id,
-          name: room.name || room.room_id,
-          topic: room.topic,
-          avatarUrl: room.avatar_url
-            ? client.mxcUrlToHttp(room.avatar_url, 96, 96, 'crop') || undefined
-            : undefined,
-          isDirect: false,
-          unreadCount: 0,
-          lastMessage: undefined,
-        }));
+          // Include rooms user is part of or public rooms
+          return membership === 'join' || membership === 'invite' || joinRule === 'public';
+        })
+        .map(room => convertRoom(room));
 
-      // Combine and sort rooms
-      const allRooms = [...joinedRoomInfos, ...publicRoomInfos].sort((a, b) => {
-        // Sort by last message timestamp (most recent first)
+      // Fetch public rooms if we're in a prepared state
+      let publicRoomInfos: RoomInfo[] = [];
+      if (client.getSyncState() === SyncState.Prepared) {
+        try {
+          const serverUrl = new URL(client.baseUrl);
+          const serverName = serverUrl.hostname;
+          const response = await client.publicRooms({
+            limit: 50,
+            server: serverName,
+          });
+
+          publicRoomInfos = response.chunk
+            .filter(room => !accessibleRoomInfos.some(known => known.id === room.room_id))
+            .map(room => ({
+              id: room.room_id,
+              name: room.name || room.room_id,
+              topic: room.topic,
+              avatarUrl: room.avatar_url
+                ? client.mxcUrlToHttp(room.avatar_url, 96, 96, 'crop') || undefined
+                : undefined,
+              isDirect: false,
+              unreadCount: 0,
+              lastMessage: undefined,
+            }));
+        } catch (error) {
+          console.warn('Failed to fetch public rooms:', error);
+          // Continue without public rooms
+        }
+      }
+
+      const allRooms = [...accessibleRoomInfos, ...publicRoomInfos].sort((a, b) => {
         const aTime = a.lastMessage?.timestamp || 0;
         const bTime = b.lastMessage?.timestamp || 0;
         return bTime - aTime;
@@ -425,38 +370,115 @@ export function useMatrixRooms() {
     }
   }, [client, convertRoom]);
 
-  // Listen for room events
+  // Search public rooms
+  const searchPublicRooms = useCallback(
+    async (searchTerm?: string, limit = 20) => {
+      if (!client) {
+        console.warn('Cannot search rooms: Client not initialized');
+        setPublicRoomsError('Chat client not initialized');
+        return [];
+      }
+
+      const syncState = client.getSyncState();
+      if (syncState !== SyncState.Prepared) {
+        console.warn('Cannot search rooms: Client not synced, current state:', syncState);
+        setPublicRoomsError('Connecting to server...');
+        return [];
+      }
+
+      try {
+        setIsLoadingPublicRooms(true);
+        setPublicRoomsError(null);
+
+        const serverUrl = new URL(client.baseUrl);
+        const serverName = serverUrl.hostname;
+
+        const response = await client.publicRooms({
+          limit,
+          server: serverName,
+          filter: {
+            generic_search_term: searchTerm,
+          },
+          include_all_networks: false,
+        });
+
+        const publicRoomInfos = response.chunk
+          .filter(room => {
+            // Filter out rooms the user is already in
+            const existingRoom = client.getRoom(room.room_id);
+            return !existingRoom || existingRoom.getMyMembership() !== 'join';
+          })
+          .map(room => ({
+            id: room.room_id,
+            name: room.name || room.room_id,
+            topic: room.topic,
+            avatarUrl:
+              (room.avatar_url && client.mxcUrlToHttp(room.avatar_url, 96, 96, 'crop')) ||
+              undefined,
+            memberCount: room.num_joined_members,
+            worldReadable: room.world_readable,
+            guestCanJoin: room.guest_can_join,
+          }));
+
+        setPublicRooms(publicRoomInfos);
+        return publicRoomInfos;
+      } catch (error: any) {
+        console.error('Failed to search public rooms:', error);
+        const errorMessage = error.message || 'Failed to search public rooms';
+        setPublicRoomsError(errorMessage);
+        throw new Error(errorMessage);
+      } finally {
+        setIsLoadingPublicRooms(false);
+      }
+    },
+    [client]
+  );
+
+  // Listen for room events with proper sync state handling
   useEffect(() => {
     if (!client || !isInitialized) {
       setIsLoading(true);
       return;
     }
 
-    // Initial room list
-    updateRooms();
-
-    // Room events
-    const onRoomEvent = () => {
-      console.log('Room event triggered, updating rooms...');
-      updateRooms();
-    };
-    const onRoomTimeline = (event: MatrixEvent) => {
-      // Only update for message events
-      if (event.getType() === 'm.room.message') {
-        console.log('New message received, updating rooms...');
+    const onSync = (state: SyncState, prevState: SyncState | null) => {
+      // Update rooms on any sync state change to Prepared
+      if (state === SyncState.Prepared) {
         updateRooms();
       }
     };
 
-    // Listen for all relevant room events
-    client.on(ClientEvent.Room, onRoomEvent);
-    client.on(RoomEvent.Timeline, onRoomTimeline);
-    client.on(RoomEvent.MyMembership, onRoomEvent);
+    const onRoomStateEvent = (event: MatrixEvent) => {
+      // Only update on specific room state changes
+      const type = event.getType();
+      if (
+        type === 'm.room.name' ||
+        type === 'm.room.topic' ||
+        type === 'm.room.avatar' ||
+        type === 'm.room.canonical_alias' ||
+        type === 'm.room.join_rules' ||
+        type === 'm.room.member'
+      ) {
+        updateRooms();
+      }
+    };
+
+    const onMembershipChange = (room: Room, membership: string) => {
+      updateRooms();
+    };
+
+    // Initial room list - try to load even if not fully synced
+    updateRooms();
+
+    // Listen for sync state and specific room events
+    client.on(ClientEvent.Sync, onSync);
+    client.on(ClientEvent.Event, onRoomStateEvent);
+    client.on(RoomEvent.MyMembership, onMembershipChange);
 
     return () => {
-      client.removeListener(ClientEvent.Room, onRoomEvent);
-      client.removeListener(RoomEvent.Timeline, onRoomTimeline);
-      client.removeListener(RoomEvent.MyMembership, onRoomEvent);
+      client.removeListener(ClientEvent.Sync, onSync);
+      client.removeListener(ClientEvent.Event, onRoomStateEvent);
+      client.removeListener(RoomEvent.MyMembership, onMembershipChange);
     };
   }, [client, isInitialized, updateRooms]);
 
@@ -500,44 +522,6 @@ export function useMatrixRooms() {
     }
   };
 
-  // Search public rooms
-  const searchPublicRooms = async (searchTerm?: string, limit = 20) => {
-    if (!client) throw new Error('Matrix client not initialized');
-
-    try {
-      setIsLoadingPublicRooms(true);
-      setPublicRoomsError(null);
-
-      const response = await client.publicRooms({
-        limit,
-        filter: {
-          generic_search_term: searchTerm,
-        },
-      });
-
-      const publicRoomInfos = response.chunk.map(room => ({
-        id: room.room_id,
-        name: room.name || room.room_id,
-        topic: room.topic,
-        avatarUrl:
-          (room.avatar_url && client.mxcUrlToHttp(room.avatar_url, 96, 96, 'crop')) || undefined,
-        memberCount: room.num_joined_members,
-        worldReadable: room.world_readable,
-        guestCanJoin: room.guest_can_join,
-      }));
-
-      setPublicRooms(publicRoomInfos);
-      return publicRoomInfos;
-    } catch (error: any) {
-      console.error('Failed to search public rooms:', error);
-      const errorMessage = error.message || 'Failed to search public rooms';
-      setPublicRoomsError(errorMessage);
-      throw new Error(errorMessage);
-    } finally {
-      setIsLoadingPublicRooms(false);
-    }
-  };
-
   return {
     rooms,
     isLoading,
@@ -552,5 +536,6 @@ export function useMatrixRooms() {
     publicRoomsError,
     searchPublicRooms,
     getRoomCategories,
+    updateRooms,
   };
 }

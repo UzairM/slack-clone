@@ -10,7 +10,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { cn } from '@/lib/utils';
 import { formatDistanceToNow } from 'date-fns';
-import { Check, Loader2, MoreHorizontal, Pencil, Trash } from 'lucide-react';
+import { Check, Loader2, MessageSquare, MoreHorizontal, Pencil, Trash } from 'lucide-react';
 import { useState } from 'react';
 import { Textarea } from '../ui/textarea';
 import { AudioMessage } from './audio-message';
@@ -18,6 +18,7 @@ import { EmoteMessage } from './emote-message';
 import { FileMessage } from './file-message';
 import { ImageMessage } from './image-message';
 import { LocationMessage } from './location-message';
+import { MessageReactions } from './message-reactions';
 import { VideoMessage } from './video-message';
 
 interface MessageProps {
@@ -35,6 +36,14 @@ interface MessageProps {
   onDelete?: (id: string) => Promise<void>;
   onStartEdit?: (id: string) => void;
   onCancelEdit?: () => void;
+  onAddReaction?: (id: string, reaction: string) => Promise<void>;
+  onRemoveReaction?: (id: string, reaction: string) => Promise<void>;
+  reactions?: {
+    [key: string]: {
+      count: number;
+      userIds: string[];
+    };
+  };
   className?: string;
   type: 'm.text' | 'm.image' | 'm.file' | 'm.audio' | 'm.video' | 'm.location' | 'm.emote';
   // Additional props for rich content
@@ -49,6 +58,24 @@ interface MessageProps {
     longitude: number;
     description?: string;
   };
+  threadId?: string;
+  isThreadRoot?: boolean;
+  thread?: {
+    latestReply?: {
+      id: string;
+      content: string;
+      sender: string;
+      timestamp: number;
+    };
+    replyCount: number;
+    isUnread: boolean;
+  };
+  replyTo?: {
+    id: string;
+    content: string;
+    sender: string;
+  };
+  onThreadClick?: (threadId: string) => void;
 }
 
 export function Message({
@@ -66,6 +93,9 @@ export function Message({
   onDelete,
   onStartEdit,
   onCancelEdit,
+  onAddReaction,
+  onRemoveReaction,
+  reactions = {},
   className,
   type,
   mimeType,
@@ -75,6 +105,11 @@ export function Message({
   mediaUrl,
   duration,
   location,
+  threadId,
+  isThreadRoot,
+  thread,
+  replyTo,
+  onThreadClick,
 }: MessageProps) {
   const [editContent, setEditContent] = useState(content);
   const [isDeleting, setIsDeleting] = useState(false);
@@ -280,7 +315,55 @@ export function Message({
           </span>
         </div>
 
+        {/* Reply reference */}
+        {replyTo && (
+          <div className="mb-1 flex items-center gap-2 rounded-md bg-muted/50 px-3 py-2 text-sm text-muted-foreground">
+            <span className="truncate">
+              <span className="font-medium">{replyTo.sender}</span>: {replyTo.content}
+            </span>
+          </div>
+        )}
+
         {renderContent()}
+
+        {/* Thread preview */}
+        {isThreadRoot && thread && (
+          <button
+            onClick={() => onThreadClick?.(id)}
+            className="mt-2 flex items-center gap-2 rounded-md bg-muted/50 px-3 py-2 text-sm hover:bg-muted"
+          >
+            <div className="flex-1">
+              {thread.latestReply ? (
+                <div className="flex flex-col gap-1">
+                  <div className="flex items-center gap-2">
+                    <span className="font-medium">{thread.latestReply.sender}</span>
+                    <span className="text-xs text-muted-foreground">
+                      {formatDistanceToNow(thread.latestReply.timestamp, { addSuffix: true })}
+                    </span>
+                  </div>
+                  <p className="line-clamp-1 text-muted-foreground">{thread.latestReply.content}</p>
+                </div>
+              ) : null}
+              <p className="mt-1 text-xs font-medium text-muted-foreground">
+                {thread.replyCount} {thread.replyCount === 1 ? 'reply' : 'replies'}
+                {thread.isUnread && (
+                  <span className="ml-2 inline-flex h-2 w-2 rounded-full bg-blue-500" />
+                )}
+              </p>
+            </div>
+          </button>
+        )}
+
+        {/* Add reactions */}
+        {onAddReaction && onRemoveReaction && (
+          <MessageReactions
+            messageId={id}
+            reactions={reactions}
+            onAddReaction={onAddReaction}
+            onRemoveReaction={onRemoveReaction}
+            className="mt-2"
+          />
+        )}
       </div>
 
       {!isEditing && (onEdit || onDelete) && (
@@ -299,6 +382,12 @@ export function Message({
               <DropdownMenuItem onClick={() => onStartEdit?.(id)}>
                 <Pencil className="mr-2 h-4 w-4" />
                 Edit
+              </DropdownMenuItem>
+            )}
+            {!isThreadRoot && onThreadClick && (
+              <DropdownMenuItem onClick={() => onThreadClick(threadId || id)}>
+                <MessageSquare className="mr-2 h-4 w-4" />
+                {threadId ? 'View Thread' : 'Start Thread'}
               </DropdownMenuItem>
             )}
             {onDelete && (
