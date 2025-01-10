@@ -144,7 +144,7 @@ export function ThreadView({ roomId, threadId, onClose, className }: ThreadViewP
               isEditing={editingMessageId === rootMessage.id}
               onAddReaction={addReaction}
               onRemoveReaction={removeReaction}
-              className="bg-muted/50"
+              className="border border-border dark:border-border-dark rounded-md"
             />
           )}
 

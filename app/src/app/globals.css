@@ -5,7 +5,7 @@
 @layer base {
   :root {
     /* Base Colors */
-    --background: 213 67% 96%; /* Lighter blue-tinted background */
+    --background: 0 0% 93%; /* #EEEEEE */
     --foreground: 0 0% 10%; /* Near black for text */
 
     /* Primary Colors */
@@ -29,7 +29,8 @@
     --popover-foreground: 0 0% 10%;
 
     /* Interactive Elements */
-    --border: 213 67% 86%;
+    --border: 0 0% 0%; /* Black border for light theme */
+    --border-dark: 0 0% 100%; /* White border for dark theme */
     --input: 213 67% 86%;
     --ring: 215 80% 58%;
 
