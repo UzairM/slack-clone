@@ -3,7 +3,6 @@
 import { useMatrix } from '@/hooks/use-matrix';
 import { useAuthStore } from '@/lib/store/auth-store';
 import {
-  ClientEvent,
   Direction,
   EventStatus,
   EventType,
@@ -12,8 +11,6 @@ import {
   RelationType,
   Room,
   RoomEvent,
-  RoomMemberEvent,
-  SyncState,
   TimelineWindow,
 } from 'matrix-js-sdk';
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -88,6 +85,12 @@ export function useMatrixMessages(roomId: string) {
   const maxRetries = 5;
   const [retryCount, setRetryCount] = useState(0);
   const messageStatusRef = useRef<Record<string, MessageEvent['status']>>({});
+  const messagesRef = useRef<MessageEvent[]>([]);
+
+  // Update messages ref when messages change
+  useEffect(() => {
+    messagesRef.current = messages;
+  }, [messages]);
 
   // Convert Matrix event to message
   const convertEvent = useCallback(
@@ -348,93 +351,146 @@ export function useMatrixMessages(roomId: string) {
   );
 
   // Load messages
-  const loadMessages = useCallback(
-    async (limit = 50) => {
-      if (!client || !isInitialized) {
-        console.warn('Cannot load messages: Client not initialized');
-        setError('Chat client not initialized');
+  const loadMessages = useCallback(async () => {
+    if (!client || !isInitialized) return;
+
+    try {
+      setIsLoading(true);
+      setError(null);
+
+      const room = client.getRoom(roomId);
+      if (!room) {
+        setError('Room not found');
         return;
       }
 
-      try {
-        setIsLoading(true);
-        setError(null);
+      // Initialize timeline window if not already created
+      if (!timelineWindowRef.current) {
+        const timelineSet = room.getUnfilteredTimelineSet();
+        timelineWindowRef.current = new TimelineWindow(client, timelineSet);
+        await timelineWindowRef.current.load(undefined, 10); // Load latest 10 messages
+      }
 
-        const room = client.getRoom(roomId);
-        if (!room) {
-          console.error('Room not found:', roomId);
-          throw new Error('Room not found');
+      // Get events from timeline window
+      const events = timelineWindowRef.current.getEvents();
+      const convertedMessages = events
+        .map(event => convertEvent(event))
+        .filter((msg): msg is MessageEvent => msg !== null);
+
+      // Merge with local messages
+      const allMessages = [...convertedMessages];
+      localMessages.forEach(msg => {
+        if (!allMessages.some(m => m.id === msg.id)) {
+          allMessages.push(msg);
         }
+      });
 
-        console.log('Loading messages for room:', roomId);
+      // Sort messages by timestamp
+      allMessages.sort((a, b) => a.timestamp - b.timestamp);
 
-        // Initialize timeline window if needed
-        if (!timelineWindowRef.current) {
-          const timelineSet = room.getUnfilteredTimelineSet();
-          timelineWindowRef.current = new TimelineWindow(client, timelineSet);
+      setMessages(allMessages);
+      setHasMore(timelineWindowRef.current.canPaginate(Direction.Backward));
+    } catch (err) {
+      console.error('Failed to load messages:', err);
+      setError(err instanceof Error ? err.message : 'Failed to load messages');
+    } finally {
+      setIsLoading(false);
+    }
+  }, [client, isInitialized, roomId, localMessages, convertEvent]);
 
-          // Load initial timeline around live timeline
-          await timelineWindowRef.current.load(undefined, limit);
+  // Handle timeline events
+  const handleTimelineEvent = useCallback(
+    (event: MatrixEvent) => {
+      if (event.getRoomId() !== roomId) return;
 
-          // Paginate backwards to get historical messages
-          await timelineWindowRef.current.paginate(Direction.Backward, limit);
+      // For new messages and updates
+      if (event.getType() === EventType.RoomMessage) {
+        const msg = convertEvent(event);
+        if (msg) {
+          setMessages(prev => {
+            // Remove any existing message with the same ID
+            const filtered = prev.filter(m => m.id !== msg.id);
+            // Add the new/updated message and sort
+            const updated = [...filtered, msg].sort((a, b) => a.timestamp - b.timestamp);
+            return updated;
+          });
         }
+      }
 
-        // Get timeline events
-        const events = timelineWindowRef.current
-          .getEvents()
-          .filter(event => {
-            // Only include valid message events that aren't redacted
-            return (
-              event.getType() === EventType.RoomMessage &&
-              !event.isRedacted() &&
-              event.getContent()?.body
-            );
-          })
-          .map(event => convertEvent(event))
-          .filter((msg): msg is MessageEvent => msg !== null);
-
-        // Add local messages that haven't been sent yet
-        const localMsgs = Array.from(localMessages.values());
-        const allMessages = [...events, ...localMsgs].sort((a, b) => a.timestamp - b.timestamp);
-
-        setMessages(allMessages);
-
-        // Check if we have more messages to load
-        const timeline = room.getLiveTimeline();
-        const hasMoreEvents =
-          timeline.getEvents().length >= limit || !timeline.getPaginationToken(Direction.Backward);
-        setHasMore(hasMoreEvents);
-
-        setIsLoading(false);
-      } catch (err: any) {
-        console.error('Failed to load messages:', err);
-        setError(err.message || 'Failed to load messages');
-        setIsLoading(false);
+      // For redactions (deleted messages)
+      if (event.isRedaction()) {
+        const redactedId = event.getAssociatedId();
+        if (redactedId) {
+          setMessages(prev => prev.filter(msg => msg.id !== redactedId));
+        }
       }
     },
-    [client, isInitialized, roomId, convertEvent, localMessages]
+    [roomId, convertEvent]
   );
 
-  // Handle sync state changes
+  // Listen for room events
   useEffect(() => {
     if (!client || !isInitialized) return;
 
-    const handleSyncStateChange = (state: SyncState) => {
-      if (state === SyncState.Prepared) {
-        loadMessages();
-      }
-    };
+    const room = client.getRoom(roomId);
+    if (!room) {
+      console.warn('Room not found:', roomId);
+      return;
+    }
 
-    client.on(ClientEvent.Sync, handleSyncStateChange);
+    // Listen for timeline events
+    room.on(RoomEvent.Timeline, handleTimelineEvent);
 
     // Initial load
     loadMessages();
 
     return () => {
-      client.removeListener(ClientEvent.Sync, handleSyncStateChange);
+      room.removeListener(RoomEvent.Timeline, handleTimelineEvent);
     };
-  }, [client, isInitialized, loadMessages]);
+  }, [client, isInitialized, roomId, loadMessages, handleTimelineEvent]);
+
+  // Load more messages
+  const loadMore = useCallback(async () => {
+    if (!client || !hasMore) return;
+
+    try {
+      const room = client.getRoom(roomId);
+      if (!room) return;
+
+      // Initialize timeline window if not already created
+      if (!timelineWindowRef.current) {
+        const timelineSet = room.getUnfilteredTimelineSet();
+        timelineWindowRef.current = new TimelineWindow(client, timelineSet);
+        await timelineWindowRef.current.load();
+      }
+
+      // Paginate backwards to load older messages
+      const hasMoreMessages = await timelineWindowRef.current.paginate(Direction.Backward, 10); // Load 10 messages at a time
+
+      // Get all events including the new ones
+      const events = timelineWindowRef.current.getEvents();
+      const convertedMessages = events
+        .map(event => convertEvent(event))
+        .filter((msg): msg is MessageEvent => msg !== null);
+
+      // Merge with local messages
+      const allMessages = [...convertedMessages];
+      localMessages.forEach(msg => {
+        if (!allMessages.some(m => m.id === msg.id)) {
+          allMessages.push(msg);
+        }
+      });
+
+      // Sort messages by timestamp
+      allMessages.sort((a, b) => a.timestamp - b.timestamp);
+
+      setMessages(allMessages);
+      setHasMore(hasMoreMessages);
+    } catch (err) {
+      console.error('Failed to load more messages:', err);
+      setError(err instanceof Error ? err.message : 'Failed to load more messages');
+    }
+  }, [client, hasMore, roomId, localMessages, convertEvent]);
 
   // Send typing notification
   const sendTypingNotification = useCallback(
@@ -488,132 +544,6 @@ export function useMatrixMessages(roomId: string) {
       sendTypingNotification(false);
     }, 4000);
   }, [sendTypingNotification]);
-
-  // Listen for room events
-  useEffect(() => {
-    if (!client || !isInitialized) return;
-
-    const room = client.getRoom(roomId);
-    if (!room) {
-      console.warn('Room not found:', roomId);
-      return;
-    }
-
-    console.log('Setting up room event listeners for room:', roomId);
-
-    const handleTimelineEvent = (event: MatrixEvent) => {
-      if (event.getRoomId() !== roomId) return;
-      loadMessages();
-    };
-
-    const handleReceiptEvent = (event: MatrixEvent, room: Room) => {
-      handleReceipt(event, room);
-    };
-
-    const handleTypingEvent = (_event: any, member: any) => {
-      console.log('Typing event received:', { member, roomId: member?.roomId });
-      if (member.roomId !== roomId) {
-        console.log('Ignoring typing event for different room');
-        return;
-      }
-
-      // Ignore typing events from the current user
-      if (member.userId === userId) {
-        console.log('Ignoring typing event from current user');
-        return;
-      }
-
-      const room = client.getRoom(roomId);
-      if (!room) {
-        console.log('Room not found for typing event');
-        return;
-      }
-
-      // Update typing users based on the member's typing state
-      setTypingUsers(prev => {
-        const newTypingUsers = member.typing
-          ? [...prev, member.name || member.userId.slice(1).split(':')[0]]
-          : prev.filter(name => name !== (member.name || member.userId.slice(1).split(':')[0]));
-
-        console.log('Processing typing event:', {
-          member,
-          memberTyping: member.typing,
-          memberName: member.name,
-          memberId: member.userId,
-          currentUserId: userId,
-          previousTypingUsers: prev,
-          newTypingUsers,
-        });
-
-        return newTypingUsers;
-      });
-    };
-
-    room.on(RoomEvent.Timeline, handleTimelineEvent);
-    room.on(RoomEvent.Receipt, handleReceiptEvent);
-    client.on(RoomMemberEvent.Typing, handleTypingEvent);
-
-    // Initial check for typing users
-    console.log('Performing initial typing check');
-    handleTypingEvent(null, { roomId });
-
-    return () => {
-      console.log('Cleaning up room event listeners');
-      room.removeListener(RoomEvent.Timeline, handleTimelineEvent);
-      room.removeListener(RoomEvent.Receipt, handleReceiptEvent);
-      client.removeListener(RoomMemberEvent.Typing, handleTypingEvent);
-    };
-  }, [client, isInitialized, roomId, loadMessages, handleReceipt, userId]);
-
-  // Load more messages
-  const loadMore = useCallback(async () => {
-    if (!client || !isInitialized || !timelineWindowRef.current) {
-      console.warn('Cannot load more messages: Client or timeline window not initialized');
-      return;
-    }
-
-    try {
-      setIsLoading(true);
-
-      // Get the room
-      const room = client.getRoom(roomId);
-      if (!room) throw new Error('Room not found');
-
-      // Paginate backwards to get more historical messages
-      const hasMoreEvents = await timelineWindowRef.current.paginate(Direction.Backward, 50);
-
-      // Get all events from the window
-      const events = timelineWindowRef.current
-        .getEvents()
-        .filter(event => {
-          return (
-            event.getType() === EventType.RoomMessage &&
-            !event.isRedacted() &&
-            event.getContent()?.body
-          );
-        })
-        .map(event => convertEvent(event))
-        .filter((msg): msg is MessageEvent => msg !== null);
-
-      // Add local messages and update state
-      const localMsgs = Array.from(localMessages.values());
-      const allMessages = [...events, ...localMsgs].sort((a, b) => a.timestamp - b.timestamp);
-
-      setMessages(allMessages);
-
-      // Update hasMore based on timeline state
-      const timeline = room.getLiveTimeline();
-      const canPaginateFurther = hasMoreEvents || !timeline.getPaginationToken(Direction.Backward);
-      setHasMore(canPaginateFurther);
-
-      setIsLoading(false);
-    } catch (err: any) {
-      console.error('Failed to load more messages:', err);
-      setError(err.message || 'Failed to load more messages');
-      toast.error('Failed to load more messages');
-      setIsLoading(false);
-    }
-  }, [client, isInitialized, roomId, convertEvent, localMessages]);
 
   // Send message with thread support
   const sendMessage = useCallback(
@@ -1071,89 +1001,6 @@ export function useMatrixMessages(roomId: string) {
       }
     },
     [client, isInitialized, roomId, userId, messages, loadMessages]
-  );
-
-  // Handle timeline events
-  const handleTimelineEvent = useCallback(
-    (event: MatrixEvent) => {
-      if (event.getRoomId() !== roomId) return;
-
-      // Handle redactions (deleted messages and reactions)
-      if (event.isRedaction()) {
-        const redactedId = event.getAssociatedId();
-        const room = client?.getRoom(roomId);
-        const redactedEvent = room?.findEventById(redactedId || '');
-
-        if (redactedEvent?.getType() === EventType.Reaction) {
-          // Handle reaction redaction
-          const relation = redactedEvent.getRelation();
-          if (relation?.rel_type === RelationType.Annotation) {
-            const targetMessageId = relation.event_id;
-            const reaction = relation.key;
-            const reactingSender = redactedEvent.getSender();
-
-            setMessages(prev => {
-              const updatedMessages = prev.map(msg => {
-                if (msg.id === targetMessageId && msg.reactions && reaction) {
-                  const updatedReactions = { ...msg.reactions };
-                  if (updatedReactions[reaction]) {
-                    // Remove the user from userIds and decrease count
-                    updatedReactions[reaction] = {
-                      count: Math.max(0, updatedReactions[reaction].count - 1),
-                      userIds: updatedReactions[reaction].userIds.filter(
-                        (id: string) => id !== reactingSender
-                      ),
-                    };
-                    // Remove the reaction if no users left
-                    if (
-                      updatedReactions[reaction].count === 0 ||
-                      updatedReactions[reaction].userIds.length === 0
-                    ) {
-                      delete updatedReactions[reaction];
-                    }
-
-                    return {
-                      ...msg,
-                      reactions: updatedReactions,
-                    };
-                  }
-                }
-                return msg;
-              });
-
-              return updatedMessages;
-            });
-
-            // Force a re-render by triggering loadMessages
-            setTimeout(() => {
-              loadMessages();
-            }, 100);
-
-            return;
-          }
-        } else if (redactedId) {
-          // Handle regular message redaction
-          setMessages(prev => prev.filter(msg => msg.id !== redactedId));
-          return;
-        }
-      }
-
-      // Handle new messages and other updates
-      const msg = convertEvent(event);
-      if (msg) {
-        setMessages(prev => {
-          // Remove any existing message with the same ID
-          const filtered = prev.filter(m => m.id !== msg.id);
-          // Add the new/updated message
-          return [...filtered, msg].sort((a, b) => a.timestamp - b.timestamp);
-        });
-        return;
-      }
-
-      // If we get here, we might need to refresh the messages
-      loadMessages();
-    },
-    [client, roomId, convertEvent, loadMessages, messages]
   );
 
   // Handle read receipt updates
