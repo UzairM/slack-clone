@@ -82,6 +82,7 @@ interface MessageProps {
   onThreadClick?: (threadId: string) => void;
   userId: string;
   isLatestMessage?: boolean;
+  isHidden?: boolean;
 }
 
 export function Message({
@@ -118,67 +119,34 @@ export function Message({
   onThreadClick,
   userId,
   isLatestMessage,
+  isHidden,
 }: MessageProps) {
   const { client } = useMatrix();
   const [editContent, setEditContent] = useState(content);
   const [isDeleting, setIsDeleting] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [showEditHistory, setShowEditHistory] = useState(false);
-  const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
-  const [displayName, setDisplayName] = useState<string>(sender);
+  const [avatarUrl, setAvatarUrl] = useState<string | null>(
+    `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(sender)}`
+  );
+  const [displayName, setDisplayName] = useState<string>(sender.slice(1).split(':')[0]);
 
   // Get user avatar and display name
   useEffect(() => {
     if (!client) return;
 
-    const getMemberInfo = async () => {
-      try {
-        // Try to get member from rooms
-        let memberAvatar: string | null = null;
-        let memberName = sender;
-
-        // Check all rooms for this user
-        for (const room of client.getRooms()) {
-          const member = room.getMember(sender);
-          if (member) {
-            memberName = member.name || member.rawDisplayName || sender;
-            const url = member.getAvatarUrl(client.baseUrl, 96, 96, 'crop', false, false);
-            if (url) {
-              memberAvatar = url;
-              break;
-            }
-          }
-        }
-
-        // If no avatar found in rooms, try user profile
-        if (!memberAvatar) {
-          const profile = await client.getProfileInfo(sender);
-          if (profile.avatar_url) {
-            memberAvatar = client.mxcUrlToHttp(profile.avatar_url, 96, 96, 'crop') || null;
-          }
-          if (profile.displayname) {
-            memberName = profile.displayname;
-          }
-        }
-
-        // If still no avatar, use Dicebear
-        if (!memberAvatar) {
-          memberAvatar = `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(sender)}`;
-        }
-
-        setAvatarUrl(memberAvatar);
-        setDisplayName(memberName || sender.slice(1).split(':')[0]);
-      } catch (error) {
-        console.error('Failed to get member info:', error);
-        // Fall back to user ID without server part and Dicebear
-        setDisplayName(sender.slice(1).split(':')[0]);
-        setAvatarUrl(
-          `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(sender)}`
-        );
+    const user = client.getUser(sender);
+    if (user && user.avatarUrl) {
+      setAvatarUrl(user.avatarUrl);
+      // Only update display name if user has set a custom one
+      const customName = user.displayName;
+      if (customName && customName !== sender) {
+        setDisplayName(customName);
       }
-    };
-
-    getMemberInfo();
+    } else {
+      // Use Dicebear as fallback
+      setAvatarUrl(`https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(sender)}`);
+    }
   }, [client, sender]);
 
   // Handle edit submit
@@ -355,6 +323,7 @@ export function Message({
       className={cn(
         'group relative flex gap-3 px-4 py-3 transition-colors hover:bg-[#AACFF3]/40 dark:hover:bg-muted/50',
         'first:pt-4 last:pb-4',
+        isHidden && 'hidden',
         className
       )}
     >

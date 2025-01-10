@@ -42,24 +42,18 @@ interface MessageEvent {
   content: string;
   sender: string;
   timestamp: number;
-  type: 'm.text' | 'm.image' | 'm.file' | 'm.audio' | 'm.video' | 'm.location' | 'm.emote';
   status: 'sending' | 'sent' | 'delivered' | 'read' | 'error';
   error?: string;
   isEdited?: boolean;
   editedTimestamp?: number;
   originalContent?: string;
-  reactions?: ReactionMap;
-  // Thread support
-  threadId?: string; // If this message is part of a thread, this is the root message ID
-  isThreadRoot?: boolean; // If this message is the start of a thread
-  thread?: ThreadSummary; // Thread summary for root messages
-  replyTo?: {
-    // If this message is a reply to another message
-    id: string;
-    content: string;
-    sender: string;
+  reactions?: {
+    [key: string]: {
+      count: number;
+      userIds: string[];
+    };
   };
-  // Additional fields for rich content
+  type: 'm.text' | 'm.image' | 'm.file' | 'm.audio' | 'm.video' | 'm.location' | 'm.emote';
   mimeType?: string;
   fileName?: string;
   fileSize?: number;
@@ -71,6 +65,24 @@ interface MessageEvent {
     longitude: number;
     description?: string;
   };
+  threadId?: string;
+  isThreadRoot?: boolean;
+  thread?: {
+    latestReply?: {
+      id: string;
+      content: string;
+      sender: string;
+      timestamp: number;
+    };
+    replyCount: number;
+    isUnread: boolean;
+  };
+  replyTo?: {
+    id: string;
+    content: string;
+    sender: string;
+  };
+  isHidden?: boolean;
 }
 
 export function useMatrixMessages(roomId: string) {
@@ -318,11 +330,22 @@ export function useMatrixMessages(roomId: string) {
   // Update message status
   const updateMessageStatus = useCallback(
     (eventId: string, status: MessageEvent['status'], error?: string) => {
+      // Update status in confirmed messages
       setMessages(prev =>
         prev.map(msg =>
           msg.id === eventId ? { ...msg, status, ...(error ? { error } : {}) } : msg
         )
       );
+
+      // Also update status in local messages
+      setLocalMessages(prev => {
+        const updated = new Map(prev);
+        const localMsg = updated.get(eventId);
+        if (localMsg) {
+          updated.set(eventId, { ...localMsg, status, ...(error ? { error } : {}) });
+        }
+        return updated;
+      });
     },
     []
   );
@@ -347,6 +370,29 @@ export function useMatrixMessages(roomId: string) {
     [roomId, updateMessageStatus]
   );
 
+  // Update messages
+  const updateMessages = useCallback((newMessages: MessageEvent[]) => {
+    setMessages(prev => {
+      // Create a map of existing messages by ID
+      const existingMessages = new Map(prev.map(msg => [msg.id, msg]));
+
+      // Update or add new messages, but only if they don't exist or have changed
+      newMessages.forEach(msg => {
+        if (msg.id) {
+          const existingMsg = existingMessages.get(msg.id);
+          // Preserve the status of existing messages unless explicitly changed
+          if (existingMsg) {
+            msg = { ...msg, status: existingMsg.status };
+          }
+          existingMessages.set(msg.id, msg);
+        }
+      });
+
+      // Convert back to array and sort by timestamp
+      return Array.from(existingMessages.values()).sort((a, b) => a.timestamp - b.timestamp);
+    });
+  }, []);
+
   // Load messages
   const loadMessages = useCallback(
     async (limit = 50) => {
@@ -366,25 +412,13 @@ export function useMatrixMessages(roomId: string) {
           throw new Error('Room not found');
         }
 
-        console.log('Loading messages for room:', roomId);
+        // Get the live timeline
+        const timeline = room.getLiveTimeline();
+        const events = timeline.getEvents();
 
-        // Initialize timeline window if needed
-        if (!timelineWindowRef.current) {
-          const timelineSet = room.getUnfilteredTimelineSet();
-          timelineWindowRef.current = new TimelineWindow(client, timelineSet);
-
-          // Load initial timeline around live timeline
-          await timelineWindowRef.current.load(undefined, limit);
-
-          // Paginate backwards to get historical messages
-          await timelineWindowRef.current.paginate(Direction.Backward, limit);
-        }
-
-        // Get timeline events
-        const events = timelineWindowRef.current
-          .getEvents()
+        // Filter and convert events
+        const messageEvents = events
           .filter(event => {
-            // Only include valid message events that aren't redacted
             return (
               event.getType() === EventType.RoomMessage &&
               !event.isRedacted() &&
@@ -394,18 +428,11 @@ export function useMatrixMessages(roomId: string) {
           .map(event => convertEvent(event))
           .filter((msg): msg is MessageEvent => msg !== null);
 
-        // Add local messages that haven't been sent yet
-        const localMsgs = Array.from(localMessages.values());
-        const allMessages = [...events, ...localMsgs].sort((a, b) => a.timestamp - b.timestamp);
-
-        setMessages(allMessages);
+        // Only include confirmed messages (no local messages)
+        setMessages(messageEvents.sort((a, b) => a.timestamp - b.timestamp));
 
         // Check if we have more messages to load
-        const timeline = room.getLiveTimeline();
-        const hasMoreEvents =
-          timeline.getEvents().length >= limit || !timeline.getPaginationToken(Direction.Backward);
-        setHasMore(hasMoreEvents);
-
+        setHasMore(!timeline.getPaginationToken(Direction.Backward));
         setIsLoading(false);
       } catch (err: any) {
         console.error('Failed to load messages:', err);
@@ -413,7 +440,7 @@ export function useMatrixMessages(roomId: string) {
         setIsLoading(false);
       }
     },
-    [client, isInitialized, roomId, convertEvent, localMessages]
+    [client, isInitialized, roomId, convertEvent]
   );
 
   // Handle sync state changes
@@ -489,7 +516,86 @@ export function useMatrixMessages(roomId: string) {
     }, 4000);
   }, [sendTypingNotification]);
 
-  // Listen for room events
+  // Handle typing event
+  const handleTypingEvent = useCallback(
+    (_event: any, member: any) => {
+      if (!member || member.roomId !== roomId) return;
+
+      // Ignore typing events from the current user
+      if (member.userId === userId) return;
+
+      // Update typing users based on the member's typing state
+      setTypingUsers(prev => {
+        const newTypingUsers = member.typing
+          ? [...prev, member.name || member.userId.slice(1).split(':')[0]]
+          : prev.filter(name => name !== (member.name || member.userId.slice(1).split(':')[0]));
+
+        return newTypingUsers;
+      });
+    },
+    [roomId, userId]
+  );
+
+  // Handle timeline event
+  const handleTimelineEvent = useCallback(
+    (event: MatrixEvent) => {
+      if (event.getRoomId() !== roomId) return;
+
+      // Handle redactions
+      if (event.isRedaction()) {
+        const redactedId = event.getAssociatedId();
+        if (redactedId) {
+          setMessages(prev => prev.filter(msg => msg.id !== redactedId));
+          setLocalMessages(prev => {
+            const updated = new Map(prev);
+            updated.delete(redactedId);
+            return updated;
+          });
+        }
+        return;
+      }
+
+      // Only handle new messages and edits
+      if (event.getType() === EventType.RoomMessage) {
+        const msg = convertEvent(event);
+        if (msg) {
+          // Update the confirmed message list
+          setMessages(prev => {
+            const existingIndex = prev.findIndex(m => m.id === msg.id);
+            if (existingIndex >= 0) {
+              // Update existing message while preserving local state
+              const updated = [...prev];
+              const localMsg = Array.from(localMessages.values()).find(m => m.id === msg.id);
+              updated[existingIndex] = {
+                ...msg,
+                status: localMsg?.status || msg.status,
+              };
+              return updated;
+            } else {
+              // Add new message
+              return [...prev, msg].sort((a, b) => a.timestamp - b.timestamp);
+            }
+          });
+
+          // If this was a local message, remove it after a short delay
+          const localMsg = Array.from(localMessages.values()).find(m => m.id === msg.id);
+          if (localMsg) {
+            // Wait a bit to ensure the confirmed message is rendered
+            setTimeout(() => {
+              setLocalMessages(prev => {
+                const updated = new Map(prev);
+                updated.delete(msg.id);
+                return updated;
+              });
+            }, 100);
+          }
+        }
+      }
+    },
+    [roomId, convertEvent, localMessages]
+  );
+
+  // Update room event listeners
   useEffect(() => {
     if (!client || !isInitialized) return;
 
@@ -499,71 +605,28 @@ export function useMatrixMessages(roomId: string) {
       return;
     }
 
-    console.log('Setting up room event listeners for room:', roomId);
-
-    const handleTimelineEvent = (event: MatrixEvent) => {
-      if (event.getRoomId() !== roomId) return;
-      loadMessages();
-    };
-
-    const handleReceiptEvent = (event: MatrixEvent, room: Room) => {
-      handleReceipt(event, room);
-    };
-
-    const handleTypingEvent = (_event: any, member: any) => {
-      console.log('Typing event received:', { member, roomId: member?.roomId });
-      if (member.roomId !== roomId) {
-        console.log('Ignoring typing event for different room');
-        return;
-      }
-
-      // Ignore typing events from the current user
-      if (member.userId === userId) {
-        console.log('Ignoring typing event from current user');
-        return;
-      }
-
-      const room = client.getRoom(roomId);
-      if (!room) {
-        console.log('Room not found for typing event');
-        return;
-      }
-
-      // Update typing users based on the member's typing state
-      setTypingUsers(prev => {
-        const newTypingUsers = member.typing
-          ? [...prev, member.name || member.userId.slice(1).split(':')[0]]
-          : prev.filter(name => name !== (member.name || member.userId.slice(1).split(':')[0]));
-
-        console.log('Processing typing event:', {
-          member,
-          memberTyping: member.typing,
-          memberName: member.name,
-          memberId: member.userId,
-          currentUserId: userId,
-          previousTypingUsers: prev,
-          newTypingUsers,
-        });
-
-        return newTypingUsers;
-      });
-    };
-
+    // Listen for timeline events
     room.on(RoomEvent.Timeline, handleTimelineEvent);
-    room.on(RoomEvent.Receipt, handleReceiptEvent);
+    room.on(RoomEvent.Receipt, handleReceipt);
     client.on(RoomMemberEvent.Typing, handleTypingEvent);
 
-    // Initial check for typing users
-    console.log('Performing initial typing check');
-    handleTypingEvent(null, { roomId });
+    // Initial message load
+    loadMessages();
 
     return () => {
-      console.log('Cleaning up room event listeners');
       room.removeListener(RoomEvent.Timeline, handleTimelineEvent);
-      room.removeListener(RoomEvent.Receipt, handleReceiptEvent);
+      room.removeListener(RoomEvent.Receipt, handleReceipt);
       client.removeListener(RoomMemberEvent.Typing, handleTypingEvent);
     };
-  }, [client, isInitialized, roomId, loadMessages, handleReceipt, userId]);
+  }, [
+    client,
+    isInitialized,
+    roomId,
+    loadMessages,
+    handleTimelineEvent,
+    handleReceipt,
+    handleTypingEvent,
+  ]);
 
   // Load more messages
   const loadMore = useCallback(async () => {
@@ -639,9 +702,8 @@ export function useMatrixMessages(roomId: string) {
           : undefined,
       };
 
-      // Add to local messages
+      // Only add to local messages, not to the main messages list
       setLocalMessages(prev => new Map(prev).set(optimisticId, optimisticMessage));
-      setMessages(prev => [...prev, optimisticMessage]);
 
       try {
         const room = client.getRoom(roomId);
@@ -1073,89 +1135,6 @@ export function useMatrixMessages(roomId: string) {
     [client, isInitialized, roomId, userId, messages, loadMessages]
   );
 
-  // Handle timeline events
-  const handleTimelineEvent = useCallback(
-    (event: MatrixEvent) => {
-      if (event.getRoomId() !== roomId) return;
-
-      // Handle redactions (deleted messages and reactions)
-      if (event.isRedaction()) {
-        const redactedId = event.getAssociatedId();
-        const room = client?.getRoom(roomId);
-        const redactedEvent = room?.findEventById(redactedId || '');
-
-        if (redactedEvent?.getType() === EventType.Reaction) {
-          // Handle reaction redaction
-          const relation = redactedEvent.getRelation();
-          if (relation?.rel_type === RelationType.Annotation) {
-            const targetMessageId = relation.event_id;
-            const reaction = relation.key;
-            const reactingSender = redactedEvent.getSender();
-
-            setMessages(prev => {
-              const updatedMessages = prev.map(msg => {
-                if (msg.id === targetMessageId && msg.reactions && reaction) {
-                  const updatedReactions = { ...msg.reactions };
-                  if (updatedReactions[reaction]) {
-                    // Remove the user from userIds and decrease count
-                    updatedReactions[reaction] = {
-                      count: Math.max(0, updatedReactions[reaction].count - 1),
-                      userIds: updatedReactions[reaction].userIds.filter(
-                        (id: string) => id !== reactingSender
-                      ),
-                    };
-                    // Remove the reaction if no users left
-                    if (
-                      updatedReactions[reaction].count === 0 ||
-                      updatedReactions[reaction].userIds.length === 0
-                    ) {
-                      delete updatedReactions[reaction];
-                    }
-
-                    return {
-                      ...msg,
-                      reactions: updatedReactions,
-                    };
-                  }
-                }
-                return msg;
-              });
-
-              return updatedMessages;
-            });
-
-            // Force a re-render by triggering loadMessages
-            setTimeout(() => {
-              loadMessages();
-            }, 100);
-
-            return;
-          }
-        } else if (redactedId) {
-          // Handle regular message redaction
-          setMessages(prev => prev.filter(msg => msg.id !== redactedId));
-          return;
-        }
-      }
-
-      // Handle new messages and other updates
-      const msg = convertEvent(event);
-      if (msg) {
-        setMessages(prev => {
-          // Remove any existing message with the same ID
-          const filtered = prev.filter(m => m.id !== msg.id);
-          // Add the new/updated message
-          return [...filtered, msg].sort((a, b) => a.timestamp - b.timestamp);
-        });
-        return;
-      }
-
-      // If we get here, we might need to refresh the messages
-      loadMessages();
-    },
-    [client, roomId, convertEvent, loadMessages, messages]
-  );
-
   // Handle read receipt updates
   useEffect(() => {
     if (!client || !isInitialized) return;
@@ -1189,6 +1168,37 @@ export function useMatrixMessages(roomId: string) {
         });
 
         return updatedMessages;
+      });
+
+      // Also update local messages
+      setLocalMessages(prev => {
+        const updated = new Map(prev);
+        const localMessages = Array.from(prev.values());
+
+        localMessages.forEach(msg => {
+          if (!msg.id) return;
+
+          const event = room.findEventById(msg.id);
+          if (event) {
+            const receiptTimeline = room.getReceiptsForEvent(event);
+            const readReceipt = receiptTimeline?.find(
+              receipt => receipt.type === 'm.read' && receipt.userId !== client.getUserId()
+            );
+
+            let status = msg.status;
+            if (readReceipt) {
+              status = 'read';
+            } else if (status !== 'read' && room.hasUserReadEvent(client.getUserId()!, msg.id)) {
+              status = 'delivered';
+            }
+
+            if (status !== msg.status) {
+              updated.set(msg.id, { ...msg, status });
+            }
+          }
+        });
+
+        return updated;
       });
     };
 
@@ -1249,8 +1259,14 @@ export function useMatrixMessages(roomId: string) {
     [messages]
   );
 
+  // Get all messages including local ones for display
+  const getAllMessages = useCallback(() => {
+    // Only return confirmed messages, no local messages
+    return messages.sort((a, b) => a.timestamp - b.timestamp);
+  }, [messages]);
+
   return {
-    messages,
+    messages: getAllMessages(),
     isLoading,
     error,
     hasMore,

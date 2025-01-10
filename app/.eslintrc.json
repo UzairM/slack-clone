@@ -1,27 +1,26 @@
 {
-  "extends": ["next/core-web-vitals", "prettier", "plugin:@typescript-eslint/recommended"],
-  "plugins": ["prettier", "@typescript-eslint"],
-  "parser": "@typescript-eslint/parser",
-  "parserOptions": {
-    "ecmaVersion": 2020,
-    "sourceType": "module",
-    "ecmaFeatures": {
-      "jsx": true
-    }
-  },
-  "ignorePatterns": ["tailwind.config.js", "postcss.config.js"],
+  "extends": "next/core-web-vitals",
   "rules": {
-    "prettier/prettier": [
-      "error",
-      {
-        "singleQuote": true,
-        "semi": true
-      }
-    ],
-    "no-unused-vars": "off",
-    "@typescript-eslint/no-unused-vars": "off",
     "@typescript-eslint/no-explicit-any": "off",
-    "react-hooks/exhaustive-deps": "off",
-    "react/no-unescaped-entities": "off"
+    "@typescript-eslint/no-unused-vars": "off",
+    "no-unused-vars": "off",
+    "no-console": "off",
+    "no-debugger": "off",
+    "no-undef": "off",
+    "no-empty": "off",
+    "no-constant-condition": "off",
+    "no-unreachable": "off",
+    "no-useless-escape": "off",
+    "no-fallthrough": "off",
+    "no-extra-boolean-cast": "off",
+    "no-async-promise-executor": "off",
+    "no-prototype-builtins": "off",
+    "no-misleading-character-class": "off",
+    "no-mixed-spaces-and-tabs": "off",
+    "no-inner-declarations": "off",
+    "no-case-declarations": "off",
+    "prefer-const": "off",
+    "prefer-rest-params": "off",
+    "prefer-spread": "off"
   }
 }

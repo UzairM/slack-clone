@@ -4,7 +4,7 @@ import { useMatrixMessages } from '@/hooks/use-matrix-messages';
 import { useAuthStore } from '@/lib/store/auth-store';
 import { cn } from '@/lib/utils';
 import { Loader2 } from 'lucide-react';
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Message } from './message';
 import { MessageInput } from './message-input';
 import { ThreadView } from './thread-view';
@@ -24,6 +24,7 @@ export function ChatContainer({ roomId, className }: ChatContainerProps) {
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const lastScrollHeightRef = useRef<number>(0);
   const isInitialLoadRef = useRef(true);
+  const messageCountRef = useRef<number>(0);
 
   const {
     messages,
@@ -41,8 +42,23 @@ export function ChatContainer({ roomId, className }: ChatContainerProps) {
     uploadFile,
   } = useMatrixMessages(roomId);
 
+  // Track message count changes
+  useEffect(() => {
+    const prevCount = messageCountRef.current;
+    messageCountRef.current = messages.length;
+
+    // If we have new messages and should auto-scroll
+    if (messages.length > prevCount && shouldAutoScroll) {
+      requestAnimationFrame(() => {
+        if (scrollContainerRef.current) {
+          scrollContainerRef.current.scrollTop = scrollContainerRef.current.scrollHeight;
+        }
+      });
+    }
+  }, [messages, shouldAutoScroll]);
+
   // Handle scroll events for pagination and auto-scroll
-  const handleScroll = async () => {
+  const handleScroll = useCallback(async () => {
     if (!scrollContainerRef.current) return;
 
     const { scrollTop, scrollHeight, clientHeight } = scrollContainerRef.current;
@@ -51,38 +67,39 @@ export function ChatContainer({ roomId, className }: ChatContainerProps) {
     if (scrollTop < 100 && hasMore && !isLoadingMore) {
       setIsLoadingMore(true);
       lastScrollHeightRef.current = scrollHeight;
-      await loadMore();
-      setIsLoadingMore(false);
+
+      try {
+        await loadMore();
+      } finally {
+        setIsLoadingMore(false);
+      }
     }
 
     // Check if we should auto-scroll (near bottom)
     const isNearBottom = scrollHeight - (scrollTop + clientHeight) < 100;
     setShouldAutoScroll(isNearBottom);
-  };
+  }, [hasMore, isLoadingMore, loadMore]);
 
   // Maintain scroll position when loading more messages
   useEffect(() => {
     if (isLoadingMore && scrollContainerRef.current) {
-      const newScrollHeight = scrollContainerRef.current.scrollHeight;
-      const scrollDiff = newScrollHeight - lastScrollHeightRef.current;
-      scrollContainerRef.current.scrollTop = scrollDiff;
+      requestAnimationFrame(() => {
+        if (scrollContainerRef.current) {
+          const newScrollHeight = scrollContainerRef.current.scrollHeight;
+          const scrollDiff = newScrollHeight - lastScrollHeightRef.current;
+          scrollContainerRef.current.scrollTop = scrollDiff;
+        }
+      });
     }
   }, [messages, isLoadingMore]);
 
-  // Auto-scroll to bottom for new messages
+  // Initial scroll to bottom
   useEffect(() => {
-    if (scrollContainerRef.current && shouldAutoScroll) {
-      if (isInitialLoadRef.current) {
-        scrollContainerRef.current.scrollTop = scrollContainerRef.current.scrollHeight;
-        isInitialLoadRef.current = false;
-      } else {
-        scrollContainerRef.current.scrollTo({
-          top: scrollContainerRef.current.scrollHeight,
-          behavior: 'smooth',
-        });
-      }
+    if (scrollContainerRef.current && isInitialLoadRef.current && !isLoading) {
+      scrollContainerRef.current.scrollTop = scrollContainerRef.current.scrollHeight;
+      isInitialLoadRef.current = false;
     }
-  }, [messages, shouldAutoScroll]);
+  }, [isLoading]);
 
   // Reset scroll and loading state when room changes
   useEffect(() => {
@@ -91,6 +108,7 @@ export function ChatContainer({ roomId, className }: ChatContainerProps) {
       setShouldAutoScroll(true);
       setIsLoadingMore(false);
       isInitialLoadRef.current = true;
+      messageCountRef.current = 0;
     }
   }, [roomId]);
 
