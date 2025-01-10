@@ -1,5 +1,16 @@
 'use client';
 
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from '@/components/ui/alert-dialog';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
@@ -13,9 +24,10 @@ import {
   Loader2,
   MessageSquare,
   Pencil,
-  Trash,
+  Trash2,
 } from 'lucide-react';
 import { useEffect, useState } from 'react';
+import { toast } from 'sonner';
 import { Textarea } from '../ui/textarea';
 import { AudioMessage } from './audio-message';
 import { EmoteMessage } from './emote-message';
@@ -83,6 +95,7 @@ interface MessageProps {
   userId: string;
   isLatestMessage?: boolean;
   isHidden?: boolean;
+  isInThreadView?: boolean;
 }
 
 export function Message({
@@ -120,6 +133,7 @@ export function Message({
   userId,
   isLatestMessage,
   isHidden,
+  isInThreadView,
 }: MessageProps) {
   const { client } = useMatrix();
   const [editContent, setEditContent] = useState(content);
@@ -174,8 +188,10 @@ export function Message({
     try {
       setIsDeleting(true);
       await onDelete(id);
+      // No need to manually hide the message as it will be removed from the messages list
     } catch (error) {
       console.error('Failed to delete message:', error);
+      toast.error('Failed to delete message');
     } finally {
       setIsDeleting(false);
     }
@@ -477,68 +493,86 @@ export function Message({
       </div>
 
       {/* Message actions */}
-      {!isEditing && (onEdit || onDelete || !isThreadRoot || onThreadClick) && (
-        <div className="absolute right-4 top-2 hidden space-x-1 opacity-0 transition-opacity group-hover:flex group-hover:opacity-100">
-          {onEdit && (
-            <TooltipProvider>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-7 w-7 rounded-full"
-                    onClick={() => onStartEdit?.(id)}
-                  >
-                    <Pencil className="h-4 w-4" />
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent>Edit message</TooltipContent>
-              </Tooltip>
-            </TooltipProvider>
-          )}
+      <div
+        className={cn(
+          'absolute right-4 top-2 flex items-center gap-1 opacity-0 transition-opacity',
+          'group-hover:opacity-100'
+        )}
+      >
+        {/* Thread button */}
+        {!isThreadRoot && onThreadClick && (
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-7 w-7 rounded-full"
+                  onClick={() => onThreadClick(id)}
+                >
+                  <MessageSquare className="h-4 w-4" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>Start Thread</TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
+        )}
 
-          {!isThreadRoot && onThreadClick && (
-            <TooltipProvider>
-              <Tooltip>
-                <TooltipTrigger asChild>
+        {/* Edit and Delete buttons - only for user's messages and not for thread roots */}
+        {sender === userId && (
+          <>
+            {onEdit && (
+              <TooltipProvider>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-7 w-7 rounded-full"
+                      onClick={() => onStartEdit?.(id)}
+                      disabled={isDeleting}
+                    >
+                      <Pencil className="h-4 w-4" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>Edit Message</TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
+            )}
+            {onDelete && (!isThreadRoot || !isInThreadView) && (
+              <AlertDialog>
+                <AlertDialogTrigger asChild>
                   <Button
                     variant="ghost"
                     size="icon"
-                    className="h-7 w-7 rounded-full"
-                    onClick={() => onThreadClick(threadId || id)}
-                  >
-                    <MessageSquare className="h-4 w-4" />
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent>{threadId ? 'View Thread' : 'Start Thread'}</TooltipContent>
-              </Tooltip>
-            </TooltipProvider>
-          )}
-
-          {onDelete && (
-            <TooltipProvider>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-7 w-7 rounded-full text-destructive hover:bg-destructive/10 hover:text-destructive"
-                    onClick={handleDelete}
+                    className={cn(
+                      'h-7 w-7 rounded-full text-destructive hover:bg-destructive/10 hover:text-destructive',
+                      isThreadRoot && isInThreadView && 'hidden'
+                    )}
                     disabled={isDeleting}
                   >
                     {isDeleting ? (
                       <Loader2 className="h-4 w-4 animate-spin" />
                     ) : (
-                      <Trash className="h-4 w-4" />
+                      <Trash2 className="h-4 w-4" />
                     )}
                   </Button>
-                </TooltipTrigger>
-                <TooltipContent>{isDeleting ? 'Deleting...' : 'Delete message'}</TooltipContent>
-              </Tooltip>
-            </TooltipProvider>
-          )}
-        </div>
-      )}
+                </AlertDialogTrigger>
+                <AlertDialogContent>
+                  <AlertDialogHeader>
+                    <AlertDialogTitle>Delete message?</AlertDialogTitle>
+                    <AlertDialogDescription>This action cannot be undone.</AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter>
+                    <AlertDialogCancel>Cancel</AlertDialogCancel>
+                    <AlertDialogAction onClick={handleDelete}>Delete</AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
+            )}
+          </>
+        )}
+      </div>
     </div>
   );
 }

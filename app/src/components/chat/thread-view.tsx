@@ -145,6 +145,7 @@ export function ThreadView({ roomId, threadId, onClose, className }: ThreadViewP
               onAddReaction={addReaction}
               onRemoveReaction={removeReaction}
               className="border border-border dark:border-border-dark rounded-md"
+              isInThreadView={true}
             />
           )}
 
@@ -169,6 +170,7 @@ export function ThreadView({ roomId, threadId, onClose, className }: ThreadViewP
                   isEditing={editingMessageId === message.id}
                   onAddReaction={addReaction}
                   onRemoveReaction={removeReaction}
+                  isInThreadView={true}
                 />
               ))}
           </div>
