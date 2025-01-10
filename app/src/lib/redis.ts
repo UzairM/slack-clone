@@ -15,9 +15,7 @@ const redisOptions: RedisOptions = {
   },
 };
 
-export const redis =
-  globalForRedis.redis ??
-  new Redis(redisOptions);
+export const redis = globalForRedis.redis ?? new Redis(redisOptions);
 
 redis.on('error', (error: Error) => {
   console.error('Redis Client Error:', error);

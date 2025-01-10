@@ -55,10 +55,8 @@ export const channelsRouter = router({
       } as z.infer<typeof channelSchema>;
     }),
 
-  delete: publicProcedure
-    .input(z.string())
-    .mutation(async ({ input: channelId }) => {
-      // TODO: Implement actual channel deletion
-      return { success: true };
-    }),
+  delete: publicProcedure.input(z.string()).mutation(async ({ input: channelId }) => {
+    // TODO: Implement actual channel deletion
+    return { success: true };
+  }),
 });

@@ -8,10 +8,20 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { useMatrix } from '@/hooks/use-matrix';
 import { cn } from '@/lib/utils';
-import { formatDistanceToNow } from 'date-fns';
-import { Loader2, MessageSquare, MoreHorizontal, Pencil, Trash } from 'lucide-react';
+import { format, formatDistanceToNow } from 'date-fns';
+import {
+  AlertCircle,
+  Check,
+  CheckCheck,
+  Loader2,
+  MessageSquare,
+  MoreHorizontal,
+  Pencil,
+  Trash,
+} from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { Textarea } from '../ui/textarea';
 import { AudioMessage } from './audio-message';
@@ -77,6 +87,8 @@ interface MessageProps {
     sender: string;
   };
   onThreadClick?: (threadId: string) => void;
+  userId: string;
+  isLatestMessage?: boolean;
 }
 
 export function Message({
@@ -111,6 +123,8 @@ export function Message({
   thread,
   replyTo,
   onThreadClick,
+  userId,
+  isLatestMessage,
 }: MessageProps) {
   const { client } = useMatrix();
   const [editContent, setEditContent] = useState(content);
@@ -247,64 +261,82 @@ export function Message({
       );
     }
 
+    const messageDate = new Date(timestamp);
+    const isToday = new Date().toDateString() === messageDate.toDateString();
+    const isThisYear = new Date().getFullYear() === messageDate.getFullYear();
+
+    let timeString;
+    if (isToday) {
+      timeString = format(messageDate, 'h:mm a');
+    } else if (isThisYear) {
+      timeString = format(messageDate, 'MMM d, h:mm a');
+    } else {
+      timeString = format(messageDate, 'MMM d, yyyy h:mm a');
+    }
+
     return (
       <div className="space-y-1">
-        {(() => {
-          switch (type) {
-            case 'm.text':
-              return <p className="whitespace-pre-wrap text-sm">{content}</p>;
-            case 'm.emote':
-              return <EmoteMessage content={content} sender={sender} />;
-            case 'm.image':
-              return (
-                <ImageMessage
-                  content={content}
-                  thumbnailUrl={thumbnailUrl}
-                  mediaUrl={mediaUrl}
-                  mimeType={mimeType}
-                />
-              );
-            case 'm.file':
-              return (
-                <FileMessage
-                  content={content}
-                  fileName={fileName}
-                  fileSize={fileSize}
-                  mediaUrl={mediaUrl}
-                  mimeType={mimeType}
-                />
-              );
-            case 'm.audio':
-              return (
-                <AudioMessage
-                  content={content}
-                  mediaUrl={mediaUrl}
-                  duration={duration}
-                  mimeType={mimeType}
-                />
-              );
-            case 'm.video':
-              return (
-                <VideoMessage
-                  content={content}
-                  thumbnailUrl={thumbnailUrl}
-                  mediaUrl={mediaUrl}
-                  duration={duration}
-                  mimeType={mimeType}
-                />
-              );
-            case 'm.location':
-              return location ? (
-                <LocationMessage
-                  latitude={location.latitude}
-                  longitude={location.longitude}
-                  description={location.description}
-                />
-              ) : null;
-            default:
-              return <p className="whitespace-pre-wrap text-sm">{content}</p>;
-          }
-        })()}
+        <div className="relative">
+          {(() => {
+            switch (type) {
+              case 'm.text':
+                return <p className="whitespace-pre-wrap text-sm">{content}</p>;
+              case 'm.emote':
+                return <EmoteMessage content={content} sender={sender} />;
+              case 'm.image':
+                return (
+                  <ImageMessage
+                    content={content}
+                    thumbnailUrl={thumbnailUrl}
+                    mediaUrl={mediaUrl}
+                    mimeType={mimeType}
+                  />
+                );
+              case 'm.file':
+                return (
+                  <FileMessage
+                    content={content}
+                    fileName={fileName}
+                    fileSize={fileSize}
+                    mediaUrl={mediaUrl}
+                    mimeType={mimeType}
+                  />
+                );
+              case 'm.audio':
+                return (
+                  <AudioMessage
+                    content={content}
+                    mediaUrl={mediaUrl}
+                    duration={duration}
+                    mimeType={mimeType}
+                  />
+                );
+              case 'm.video':
+                return (
+                  <VideoMessage
+                    content={content}
+                    thumbnailUrl={thumbnailUrl}
+                    mediaUrl={mediaUrl}
+                    duration={duration}
+                    mimeType={mimeType}
+                  />
+                );
+              case 'm.location':
+                return location ? (
+                  <LocationMessage
+                    latitude={location.latitude}
+                    longitude={location.longitude}
+                    description={location.description}
+                  />
+                ) : null;
+              default:
+                return <p className="whitespace-pre-wrap text-sm">{content}</p>;
+            }
+          })()}
+          <div className="mt-1 flex items-center justify-end">
+            <span className="text-[10px] font-medium text-muted-foreground/60">{timeString}</span>
+          </div>
+        </div>
         {isEdited && (
           <div className="flex items-center gap-1 text-xs text-muted-foreground">
             <button
@@ -345,17 +377,70 @@ export function Message({
           <span className="text-sm font-semibold hover:underline cursor-pointer">
             {displayName}
           </span>
-          <span className="text-[10px] font-medium text-muted-foreground">
-            {formatDistanceToNow(timestamp, { addSuffix: true })}
-          </span>
-          {status === 'error' && (
-            <span className="text-xs font-medium text-destructive" title={error}>
-              Failed to send
-            </span>
-          )}
-          {status === 'sending' && (
-            <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" />
-          )}
+          <div className="flex items-center gap-1">
+            {sender === userId && isLatestMessage && (
+              <>
+                {status === 'sending' && (
+                  <TooltipProvider>
+                    <Tooltip>
+                      <TooltipTrigger>
+                        <Loader2 className="h-3 w-3 animate-spin" />
+                      </TooltipTrigger>
+                      <TooltipContent>Sending...</TooltipContent>
+                    </Tooltip>
+                  </TooltipProvider>
+                )}
+                {status === 'error' && (
+                  <TooltipProvider>
+                    <Tooltip>
+                      <TooltipTrigger>
+                        <AlertCircle className="h-3 w-3 text-destructive" />
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        Failed to send {formatDistanceToNow(timestamp, { addSuffix: true })}
+                      </TooltipContent>
+                    </Tooltip>
+                  </TooltipProvider>
+                )}
+                {status === 'sent' && (
+                  <TooltipProvider>
+                    <Tooltip>
+                      <TooltipTrigger>
+                        <Check className="h-3 w-3" />
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        Sent {formatDistanceToNow(timestamp, { addSuffix: true })}
+                      </TooltipContent>
+                    </Tooltip>
+                  </TooltipProvider>
+                )}
+                {status === 'delivered' && (
+                  <TooltipProvider>
+                    <Tooltip>
+                      <TooltipTrigger>
+                        <Check className="h-3 w-3" />
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        Delivered {formatDistanceToNow(timestamp, { addSuffix: true })}
+                      </TooltipContent>
+                    </Tooltip>
+                  </TooltipProvider>
+                )}
+                {status === 'read' && (
+                  <TooltipProvider>
+                    <Tooltip>
+                      <TooltipTrigger>
+                        <CheckCheck className="h-3 w-3" />
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        Read {formatDistanceToNow(timestamp, { addSuffix: true })}
+                      </TooltipContent>
+                    </Tooltip>
+                  </TooltipProvider>
+                )}
+              </>
+            )}
+          </div>
         </div>
 
         {/* Reply reference */}

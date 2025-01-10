@@ -1,0 +1,27 @@
+{
+  "extends": ["next/core-web-vitals", "prettier", "plugin:@typescript-eslint/recommended"],
+  "plugins": ["prettier", "@typescript-eslint"],
+  "parser": "@typescript-eslint/parser",
+  "parserOptions": {
+    "ecmaVersion": 2020,
+    "sourceType": "module",
+    "ecmaFeatures": {
+      "jsx": true
+    }
+  },
+  "ignorePatterns": ["tailwind.config.js", "postcss.config.js"],
+  "rules": {
+    "prettier/prettier": [
+      "error",
+      {
+        "singleQuote": true,
+        "semi": true
+      }
+    ],
+    "no-unused-vars": "off",
+    "@typescript-eslint/no-unused-vars": "off",
+    "@typescript-eslint/no-explicit-any": "off",
+    "react-hooks/exhaustive-deps": "off",
+    "react/no-unescaped-entities": "off"
+  }
+}

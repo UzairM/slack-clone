@@ -62,10 +62,8 @@ export const messagesRouter = router({
       };
     }),
 
-  delete: publicProcedure
-    .input(z.string())
-    .mutation(async ({ input: messageId }) => {
-      // TODO: Implement actual message deletion
-      return { success: true };
-    }),
+  delete: publicProcedure.input(z.string()).mutation(async ({ input: messageId }) => {
+    // TODO: Implement actual message deletion
+    return { success: true };
+  }),
 });

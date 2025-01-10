@@ -1,6 +1,7 @@
 'use client';
 
 import { useMatrixMessages } from '@/hooks/use-matrix-messages';
+import { useAuthStore } from '@/lib/store/auth-store';
 import { cn } from '@/lib/utils';
 import { useEffect, useRef, useState } from 'react';
 import { Message } from './message';
@@ -14,41 +15,49 @@ interface ThreadViewProps {
 }
 
 export function ThreadView({ roomId, threadId, onClose, className }: ThreadViewProps) {
+  const { userId } = useAuthStore();
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
+  const [shouldAutoScroll, setShouldAutoScroll] = useState(true);
+
   const {
     messages,
-    isLoading,
-    error,
-    hasMore,
-    loadMore,
+    isLoading: _isLoading,
+    error: _error,
+    hasMore: _hasMore,
+    loadMore: _loadMore,
     sendMessage,
     editMessage,
     deleteMessage,
     addReaction,
     removeReaction,
-    typingUsers,
+    typingUsers: _typingUsers,
     handleUserTyping,
     uploadFile,
   } = useMatrixMessages(roomId);
-
-  const scrollContainerRef = useRef<HTMLDivElement>(null);
-  const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
-  const [shouldAutoScroll, setShouldAutoScroll] = useState(true);
-
-  // Filter messages to only show thread messages
-  const threadMessages = messages.filter(msg => msg.id === threadId || msg.threadId === threadId);
-  const rootMessage = messages.find(msg => msg.id === threadId);
-
-  // Handle edit start
-  const handleStartEdit = (id: string) => {
-    setEditingMessageId(id);
-  };
 
   // Auto-scroll to bottom when new messages arrive
   useEffect(() => {
     if (scrollContainerRef.current && shouldAutoScroll) {
       scrollContainerRef.current.scrollTop = scrollContainerRef.current.scrollHeight;
     }
-  }, [threadMessages, shouldAutoScroll]);
+  }, [messages, shouldAutoScroll]);
+
+  // Filter messages to only show thread messages
+  const threadMessages = messages.filter(msg => msg.id === threadId || msg.threadId === threadId);
+  const rootMessage = messages.find(msg => msg.id === threadId);
+
+  if (!userId) return null;
+
+  // Find the latest message from the current user in the thread
+  const latestUserMessage = threadMessages.findLast(msg => msg.sender === userId);
+  // Get the absolute latest message in the thread
+  const absoluteLatestMessage = threadMessages[threadMessages.length - 1];
+
+  // Handle edit start
+  const handleStartEdit = (id: string) => {
+    setEditingMessageId(id);
+  };
 
   // Handle scroll events to determine if we should auto-scroll
   const handleScroll = () => {
@@ -104,12 +113,28 @@ export function ThreadView({ roomId, threadId, onClose, className }: ThreadViewP
       </div>
 
       {/* Thread messages */}
-      <div ref={scrollContainerRef} onScroll={handleScroll} className="flex-1 overflow-y-auto p-4">
+      <div
+        ref={scrollContainerRef}
+        onScroll={handleScroll}
+        className="flex-1 overflow-y-auto p-4
+          [&::-webkit-scrollbar]:w-2.5
+          [&::-webkit-scrollbar-track]:bg-transparent
+          [&::-webkit-scrollbar-thumb]:bg-muted-foreground/30
+          [&::-webkit-scrollbar-thumb]:rounded-full
+          hover:[&::-webkit-scrollbar-thumb]:bg-muted-foreground/50
+          dark:[&::-webkit-scrollbar-thumb]:bg-muted-foreground/20
+          dark:hover:[&::-webkit-scrollbar-thumb]:bg-muted-foreground/40"
+      >
         <div className="space-y-4">
           {/* Root message */}
           {rootMessage && (
             <Message
               {...rootMessage}
+              userId={userId}
+              isLatestMessage={
+                rootMessage.id === latestUserMessage?.id &&
+                rootMessage.id === absoluteLatestMessage?.id
+              }
               onEdit={editMessage}
               onDelete={deleteMessage}
               onStartEdit={handleStartEdit}
@@ -131,6 +156,10 @@ export function ThreadView({ roomId, threadId, onClose, className }: ThreadViewP
                 <Message
                   key={message.id}
                   {...message}
+                  userId={userId}
+                  isLatestMessage={
+                    message.id === latestUserMessage?.id && message.id === absoluteLatestMessage?.id
+                  }
                   onEdit={editMessage}
                   onDelete={deleteMessage}
                   onStartEdit={handleStartEdit}

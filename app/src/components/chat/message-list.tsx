@@ -14,21 +14,22 @@ interface MessageListProps {
 }
 
 export function MessageList({ roomId, className }: MessageListProps) {
-  const {
-    messages,
-    isLoading,
-    error,
-    hasMore,
-    loadMore,
-    sendMessage,
-    editMessage,
-    deleteMessage,
-    typingUsers,
-  } = useMatrixMessages(roomId);
   const { userId } = useAuthStore();
   const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+
+  const {
+    messages,
+    isLoading: _isLoading,
+    error: _error,
+    hasMore: _hasMore,
+    loadMore: _loadMore,
+    sendMessage: _sendMessage,
+    editMessage,
+    deleteMessage,
+    typingUsers,
+  } = useMatrixMessages(roomId);
 
   // Auto-scroll to bottom on new messages
   useEffect(() => {
@@ -43,25 +44,43 @@ export function MessageList({ roomId, className }: MessageListProps) {
     if (!container) return;
 
     const handleScroll = () => {
-      if (container.scrollTop === 0 && hasMore && !isLoading) {
-        loadMore();
+      if (container.scrollTop === 0 && _hasMore && !_isLoading) {
+        _loadMore();
       }
     };
 
     container.addEventListener('scroll', handleScroll);
     return () => container.removeEventListener('scroll', handleScroll);
-  }, [hasMore, isLoading, loadMore]);
+  }, [_hasMore, _isLoading, _loadMore]);
 
-  if (error) {
+  // Return early if no userId
+  if (!userId) return null;
+
+  if (_error) {
     return (
-      <div className="flex items-center justify-center p-4 text-sm text-destructive">{error}</div>
+      <div className="flex items-center justify-center p-4 text-sm text-destructive">{_error}</div>
     );
   }
+
+  // Find the latest message from the current user
+  const latestUserMessage = messages.findLast(msg => msg.sender === userId);
+  // Get the absolute latest message
+  const absoluteLatestMessage = messages[messages.length - 1];
 
   return (
     <div
       ref={containerRef}
-      className={cn('flex flex-col-reverse h-full overflow-y-auto', className)}
+      className={cn(
+        'flex flex-col-reverse h-full overflow-y-auto',
+        '[&::-webkit-scrollbar]:w-2.5',
+        '[&::-webkit-scrollbar-track]:bg-transparent',
+        '[&::-webkit-scrollbar-thumb]:bg-muted-foreground/30',
+        '[&::-webkit-scrollbar-thumb]:rounded-full',
+        'hover:[&::-webkit-scrollbar-thumb]:bg-muted-foreground/50',
+        'dark:[&::-webkit-scrollbar-thumb]:bg-muted-foreground/20',
+        'dark:hover:[&::-webkit-scrollbar-thumb]:bg-muted-foreground/40',
+        className
+      )}
     >
       <div className="flex flex-col gap-2 p-4">
         <div ref={bottomRef} />
@@ -92,12 +111,16 @@ export function MessageList({ roomId, className }: MessageListProps) {
             mediaUrl={message.mediaUrl}
             duration={message.duration}
             location={message.location}
+            userId={userId || ''}
+            isLatestMessage={
+              message.id === latestUserMessage?.id && message.id === absoluteLatestMessage?.id
+            }
           />
         ))}
 
         {typingUsers.length > 0 && <TypingIndicator users={typingUsers} />}
 
-        {isLoading && (
+        {_isLoading && (
           <div className="flex items-center justify-center p-4">
             <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
           </div>

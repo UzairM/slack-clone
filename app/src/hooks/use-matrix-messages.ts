@@ -87,30 +87,49 @@ export function useMatrixMessages(roomId: string) {
   const retryTimeoutRef = useRef<NodeJS.Timeout>();
   const maxRetries = 5;
   const [retryCount, setRetryCount] = useState(0);
+  const messageStatusRef = useRef<Record<string, MessageEvent['status']>>({});
 
   // Convert Matrix event to message
   const convertEvent = useCallback(
     (event: MatrixEvent): MessageEvent | null => {
       if (event.getType() !== EventType.RoomMessage) return null;
 
+      const eventId = event.getId();
+
       // Get delivery status
       let messageStatus: MessageEvent['status'] = 'sent';
-      if (!event.getId()) {
+      if (!eventId) {
         messageStatus = 'sending';
       } else if (event.status === EventStatus.NOT_SENT) {
         messageStatus = 'error';
       } else {
-        const room = client?.getRoom(event.getRoomId() || '');
-        if (room) {
-          const receipts = room.getReceiptsForEvent(event);
-          const readReceipts = receipts.filter(r => (r.type as string) === 'm.read');
-          const deliveryReceipts = receipts.filter(r => (r.type as string) === 'm.delivery');
+        // If we already have a 'read' status for this message, preserve it
+        if (messageStatusRef.current[eventId] === 'read') {
+          messageStatus = 'read';
+        } else {
+          const room = client?.getRoom(event.getRoomId() || '');
+          if (room && client) {
+            const receipts = room.getReceiptsForEvent(event);
+            const readReceipts = receipts.filter(r => (r.type as string) === 'm.read');
+            const deliveryReceipts = receipts.filter(r => (r.type as string) === 'm.delivery');
 
-          if (readReceipts.length > 0) {
-            messageStatus = 'read';
-          } else if (deliveryReceipts.length > 0) {
-            messageStatus = 'delivered';
+            const otherUserReadReceipts = readReceipts.filter(r => r.userId !== client.getUserId());
+            if (otherUserReadReceipts.length > 0) {
+              messageStatus = 'read';
+            } else {
+              const otherUserDeliveryReceipts = deliveryReceipts.filter(
+                r => r.userId !== client.getUserId()
+              );
+              if (otherUserDeliveryReceipts.length > 0) {
+                messageStatus = 'delivered';
+              }
+            }
           }
+        }
+
+        // Store the new status
+        if (eventId) {
+          messageStatusRef.current[eventId] = messageStatus;
         }
       }
 
@@ -1192,6 +1211,26 @@ export function useMatrixMessages(roomId: string) {
       }
     }
   }, [client, isInitialized, roomId, messages]);
+
+  // Handle read receipt
+  const handleReadReceipt = useCallback(
+    (event: MatrixEvent) => {
+      if (!messages) return;
+
+      const updatedMessages = messages.map((msg: MessageEvent) => {
+        if (msg.id === event.getId()) {
+          return {
+            ...msg,
+            status: 'read' as const,
+          };
+        }
+        return msg;
+      });
+
+      setMessages(updatedMessages);
+    },
+    [messages]
+  );
 
   return {
     messages,
