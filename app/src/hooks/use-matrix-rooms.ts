@@ -14,7 +14,7 @@ interface RoomInfo {
   id: string;
   name: string;
   topic?: string;
-  avatarUrl?: string;
+  avatarUrl: string;
   isDirect: boolean;
   lastMessage?: {
     content: string;
@@ -28,7 +28,7 @@ interface PublicRoomInfo {
   id: string;
   name: string;
   topic?: string;
-  avatarUrl?: string;
+  avatarUrl: string;
   memberCount: number;
   worldReadable: boolean;
   guestCanJoin: boolean;
@@ -44,8 +44,47 @@ export function useMatrixRooms() {
 
   // Convert Matrix room to RoomInfo
   const convertRoom = useCallback(
-    (room: Room, publicRoomInfo?: { name: string }): RoomInfo => {
-      // Get the last message from the timeline
+    (room: Room): RoomInfo => {
+      // Get room name
+      const nameEvent = room.currentState.getStateEvents('m.room.name', '');
+      const nameFromState = Array.isArray(nameEvent)
+        ? nameEvent[0]?.getContent()?.name
+        : nameEvent?.getContent()?.name;
+      const canonicalAlias = room.getCanonicalAlias();
+      const roomName =
+        nameFromState ||
+        room.name ||
+        (canonicalAlias ? canonicalAlias.split(':')[0].substring(1) : 'Unnamed Room');
+
+      // Get topic
+      const topicEvent = room.currentState.getStateEvents('m.room.topic', '');
+      const topic = Array.isArray(topicEvent)
+        ? topicEvent[0]?.getContent()?.topic
+        : topicEvent?.getContent()?.topic;
+
+      // Get avatar URL using Matrix SDK's method
+      const avatarEvent = room.currentState.getStateEvents('m.room.avatar', '');
+      const avatarContent = Array.isArray(avatarEvent)
+        ? avatarEvent[0]?.getContent()
+        : avatarEvent?.getContent();
+      const avatarMxcUrl = avatarContent?.url;
+
+      // Ensure we always return a string for avatarUrl
+      const avatarUrl = (() => {
+        if (!avatarMxcUrl || !client) {
+          return `https://api.dicebear.com/7.x/shapes/svg?seed=${encodeURIComponent(room.roomId)}`;
+        }
+        const httpUrl = client.mxcUrlToHttp(avatarMxcUrl, 96, 96, 'crop');
+        return (
+          httpUrl ||
+          `https://api.dicebear.com/7.x/shapes/svg?seed=${encodeURIComponent(room.roomId)}`
+        );
+      })();
+
+      // Check if direct message
+      const isDirect = room.getDMInviter() !== null;
+
+      // Get last message
       const timeline = room.getLiveTimeline();
       const events = timeline.getEvents();
       const lastMessageEvent = events
@@ -56,50 +95,11 @@ export function useMatrixRooms() {
             event.getType() === 'm.room.message' && !event.isRedacted() && event.getContent()?.body
         );
 
-      // Get room name from state event
-      const nameEvent = room.currentState.getStateEvents('m.room.name', '');
-      const nameFromState = Array.isArray(nameEvent)
-        ? nameEvent[0]?.getContent().name
-        : nameEvent?.getContent().name;
-
-      // Get canonical alias
-      const aliasEvent = room.currentState.getStateEvents('m.room.canonical_alias', '');
-      const canonicalAlias = Array.isArray(aliasEvent)
-        ? aliasEvent[0]?.getContent().alias
-        : aliasEvent?.getContent().alias;
-
-      // Get topic
-      const topicEvent = room.currentState.getStateEvents('m.room.topic', '') || [];
-      const topic = Array.isArray(topicEvent)
-        ? (topicEvent[0] as MatrixEvent)?.getContent().topic
-        : (topicEvent as MatrixEvent)?.getContent().topic;
-
-      // Use name in priority order
-      const roomName =
-        publicRoomInfo?.name ||
-        nameFromState ||
-        room.name ||
-        (canonicalAlias ? canonicalAlias.split(':')[0].substring(1) : null) ||
-        'Unnamed Room';
-
-      // Check if it's a direct message room
-      const isDirect = room.getDMInviter() !== null;
-
-      // Get last message info
       const lastMessage = lastMessageEvent
         ? {
-            content: (() => {
-              const content = lastMessageEvent.getContent();
-              if (content.msgtype === 'm.image') return '📷 Image';
-              if (content.msgtype === 'm.video') return '🎥 Video';
-              if (content.msgtype === 'm.audio') return '🎵 Audio';
-              if (content.msgtype === 'm.file') return '📎 File';
-              if (content.msgtype === 'm.location') return '📍 Location';
-              if (content.msgtype === 'm.emote') return `* ${content.body}`;
-              return content.body || 'Message';
-            })(),
+            content: lastMessageEvent.getContent()?.body || '',
             timestamp: lastMessageEvent.getTs(),
-            sender: lastMessageEvent.getSender() || '',
+            sender: lastMessageEvent.getSender() || 'Unknown',
           }
         : undefined;
 
@@ -107,7 +107,7 @@ export function useMatrixRooms() {
         id: room.roomId,
         name: roomName,
         topic,
-        avatarUrl: room.getAvatarUrl(client?.baseUrl || '', 96, 96, 'crop') || undefined,
+        avatarUrl,
         isDirect,
         lastMessage,
         unreadCount: room.getUnreadNotificationCount(),
@@ -338,13 +338,8 @@ export function useMatrixRooms() {
       const accessibleRoomInfos = allKnownRooms
         .filter(room => {
           const membership = room.getMyMembership();
-          const joinRulesEvent = room.currentState.getStateEvents('m.room.join_rules', '');
-          const joinRule = Array.isArray(joinRulesEvent)
-            ? joinRulesEvent[0]?.getContent().join_rule
-            : joinRulesEvent?.getContent().join_rule;
-
-          // Include rooms user is part of or public rooms
-          return membership === 'join' || membership === 'invite' || joinRule === 'public';
+          // Only include rooms where user is joined, invited, or can join
+          return membership === 'join' || membership === 'invite';
         })
         .map(room => convertRoom(room));
 
@@ -360,14 +355,29 @@ export function useMatrixRooms() {
           });
 
           publicRoomInfos = response.chunk
-            .filter(room => !accessibleRoomInfos.some(known => known.id === room.room_id))
+            .filter(room => {
+              // Only include rooms that:
+              // 1. Are not already in our accessible rooms
+              // 2. Have active members (indicating they're still active)
+              return (
+                !accessibleRoomInfos.some(known => known.id === room.room_id) &&
+                room.num_joined_members > 0
+              );
+            })
             .map(room => ({
               id: room.room_id,
               name: room.name || room.room_id,
               topic: room.topic,
-              avatarUrl: room.avatar_url
-                ? client.mxcUrlToHttp(room.avatar_url, 96, 96, 'crop') || undefined
-                : undefined,
+              avatarUrl: (() => {
+                if (room.avatar_url && client) {
+                  const httpUrl = client.mxcUrlToHttp(room.avatar_url, 96, 96, 'crop');
+                  return (
+                    httpUrl ||
+                    `https://api.dicebear.com/7.x/shapes/svg?seed=${encodeURIComponent(room.room_id)}`
+                  );
+                }
+                return `https://api.dicebear.com/7.x/shapes/svg?seed=${encodeURIComponent(room.room_id)}`;
+              })(),
               isDirect: false,
               unreadCount: 0,
               lastMessage: undefined,
@@ -396,15 +406,15 @@ export function useMatrixRooms() {
   const searchPublicRooms = useCallback(
     async (searchTerm?: string, limit = 20) => {
       if (!client) {
-        console.warn('Cannot search rooms: Client not initialized');
-        setPublicRoomsError('Chat client not initialized');
+        const error = 'Chat client not initialized';
+        setPublicRoomsError(error);
         return [];
       }
 
       const syncState = client.getSyncState();
       if (syncState !== SyncState.Prepared) {
-        console.warn('Cannot search rooms: Client not synced, current state:', syncState);
-        setPublicRoomsError('Connecting to server...');
+        const error = 'Connecting to server...';
+        setPublicRoomsError(error);
         return [];
       }
 
@@ -426,17 +436,31 @@ export function useMatrixRooms() {
 
         const publicRoomInfos = response.chunk
           .filter(room => {
-            // Filter out rooms the user is already in
             const existingRoom = client.getRoom(room.room_id);
-            return !existingRoom || existingRoom.getMyMembership() !== 'join';
+            // Only include rooms that:
+            // 1. Are not already joined
+            // 2. Have active members
+            // 3. Are still accessible (can be joined)
+            return (
+              (!existingRoom || existingRoom.getMyMembership() !== 'join') &&
+              room.num_joined_members > 0 &&
+              room.join_rule === 'public'
+            );
           })
           .map(room => ({
             id: room.room_id,
             name: room.name || room.room_id,
             topic: room.topic,
-            avatarUrl:
-              (room.avatar_url && client.mxcUrlToHttp(room.avatar_url, 96, 96, 'crop')) ||
-              undefined,
+            avatarUrl: (() => {
+              if (room.avatar_url && client) {
+                const httpUrl = client.mxcUrlToHttp(room.avatar_url, 96, 96, 'crop');
+                return (
+                  httpUrl ||
+                  `https://api.dicebear.com/7.x/shapes/svg?seed=${encodeURIComponent(room.room_id)}`
+                );
+              }
+              return `https://api.dicebear.com/7.x/shapes/svg?seed=${encodeURIComponent(room.room_id)}`;
+            })(),
             memberCount: room.num_joined_members,
             worldReadable: room.world_readable,
             guestCanJoin: room.guest_can_join,
@@ -445,7 +469,6 @@ export function useMatrixRooms() {
         setPublicRooms(publicRoomInfos);
         return publicRoomInfos;
       } catch (error: any) {
-        console.error('Failed to search public rooms:', error);
         const errorMessage = error.message || 'Failed to search public rooms';
         setPublicRoomsError(errorMessage);
         throw new Error(errorMessage);
@@ -549,40 +572,37 @@ export function useMatrixRooms() {
     if (!client) return;
 
     const handleTimelineEvent = (event: MatrixEvent, room: Room) => {
-      // Only handle message events that aren't redacted
-      if (event.getType() !== 'm.room.message' || event.isRedacted() || !event.getContent()?.body)
+      if (event.getType() !== 'm.room.message' || event.isRedacted() || !event.getContent()?.body) {
         return;
+      }
 
-      // Immediately update the room in our list
       setRooms(prevRooms => {
         const roomIndex = prevRooms.findIndex(r => r.id === room.roomId);
         if (roomIndex === -1) return prevRooms;
 
-        // Create updated room info with new last message
         const updatedRoom = {
           ...prevRooms[roomIndex],
           lastMessage: {
             content: (() => {
               const content = event.getContent();
+              if (!content) return 'Message';
               if (content.msgtype === 'm.image') return '📷 Image';
               if (content.msgtype === 'm.video') return '🎥 Video';
               if (content.msgtype === 'm.audio') return '🎵 Audio';
               if (content.msgtype === 'm.file') return '📎 File';
               if (content.msgtype === 'm.location') return '📍 Location';
-              if (content.msgtype === 'm.emote') return `* ${content.body}`;
+              if (content.msgtype === 'm.emote') return `* ${content.body || ''}`;
               return content.body || 'Message';
             })(),
             timestamp: event.getTs(),
-            sender: event.getSender() || '',
+            sender: event.getSender() || 'Unknown',
           },
           unreadCount: room.getUnreadNotificationCount(),
         };
 
-        // Create new array with updated room
         const newRooms = [...prevRooms];
         newRooms[roomIndex] = updatedRoom;
 
-        // Sort rooms by last message timestamp
         return newRooms.sort((a, b) => {
           const aTime = a.lastMessage?.timestamp || 0;
           const bTime = b.lastMessage?.timestamp || 0;
@@ -593,25 +613,28 @@ export function useMatrixRooms() {
 
     const handleRoomSync = (room: Room) => {
       setRooms(prevRooms => {
-        const updatedRoom = convertRoom(room);
-        const roomIndex = prevRooms.findIndex(r => r.id === room.roomId);
+        try {
+          const updatedRoom = convertRoom(room);
+          const roomIndex = prevRooms.findIndex(r => r.id === room.roomId);
 
-        if (roomIndex === -1) {
-          // New room, add it to the list
-          return [...prevRooms, updatedRoom].sort((a, b) => {
-            const aTime = a.lastMessage?.timestamp || 0;
-            const bTime = b.lastMessage?.timestamp || 0;
-            return bTime - aTime;
-          });
-        } else {
-          // Update existing room
-          const newRooms = [...prevRooms];
-          newRooms[roomIndex] = updatedRoom;
-          return newRooms.sort((a, b) => {
-            const aTime = a.lastMessage?.timestamp || 0;
-            const bTime = b.lastMessage?.timestamp || 0;
-            return bTime - aTime;
-          });
+          if (roomIndex === -1) {
+            return [...prevRooms, updatedRoom].sort((a, b) => {
+              const aTime = a.lastMessage?.timestamp || 0;
+              const bTime = b.lastMessage?.timestamp || 0;
+              return bTime - aTime;
+            });
+          } else {
+            const newRooms = [...prevRooms];
+            newRooms[roomIndex] = updatedRoom;
+            return newRooms.sort((a, b) => {
+              const aTime = a.lastMessage?.timestamp || 0;
+              const bTime = b.lastMessage?.timestamp || 0;
+              return bTime - aTime;
+            });
+          }
+        } catch (error) {
+          console.error('Error in handleRoomSync:', error);
+          return prevRooms;
         }
       });
     };

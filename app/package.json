@@ -10,7 +10,9 @@
     "lint:fix": "next lint --fix",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "prepare": "husky install"
+    "prepare": "husky install",
+    "test": "echo \"No tests specified\" && exit 0",
+    "lint-staged": "lint-staged"
   },
   "dependencies": {
     "@emoji-mart/data": "^1.2.1",
@@ -78,6 +80,8 @@
     "@types/react": "^18",
     "@types/react-dom": "^18",
     "@types/unist": "^3.0.3",
+    "@typescript-eslint/eslint-plugin": "^6.21.0",
+    "@typescript-eslint/parser": "^6.21.0",
     "autoprefixer": "^10.0.1",
     "eslint": "^8",
     "eslint-config-next": "14.0.4",

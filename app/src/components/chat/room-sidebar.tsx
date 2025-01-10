@@ -10,6 +10,7 @@ import { cn } from '@/lib/utils';
 import { Loader2, Lock, MessageSquare, Plus, Search, Settings, Users } from 'lucide-react';
 import { useParams, useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
+import { toast } from 'sonner';
 import { RoomManagement } from './room-management';
 
 interface RoomSidebarProps {
@@ -20,7 +21,7 @@ interface RoomInfo {
   id: string;
   name: string;
   topic?: string;
-  avatarUrl?: string;
+  avatarUrl: string;
   isDirect: boolean;
   lastMessage?: {
     content: string;
@@ -40,17 +41,93 @@ export function RoomSidebar({ className }: RoomSidebarProps) {
 
   const { publicRooms, privateRooms, directMessages, myRooms } = getRoomCategories();
 
-  // Debug logging for room categorization
+  // Debug logging for room details
   useEffect(() => {
-    console.log('Room Sidebar Debug:', {
-      allRooms: rooms.map(r => ({ id: r.id, name: r.name })),
-      categorized: {
-        public: publicRooms.map(r => ({ id: r.id, name: r.name })),
-        private: privateRooms.map(r => ({ id: r.id, name: r.name })),
-        direct: directMessages.map(r => ({ id: r.id, name: r.name })),
+    console.log('=== Room Sidebar: Initial State ===', {
+      isLoading,
+      roomsCount: rooms.length,
+      clientInitialized: !!client,
+      categoryCounts: {
+        myRooms: myRooms.length,
+        publicRooms: publicRooms.length,
+        privateRooms: privateRooms.length,
+        directMessages: directMessages.length,
       },
     });
-  }, [rooms, publicRooms, privateRooms, directMessages]);
+
+    // Log all Matrix rooms from client
+    if (client) {
+      const allMatrixRooms = client.getRooms();
+      console.log(
+        '=== All Matrix Rooms from Client ===',
+        allMatrixRooms.map(room => ({
+          id: room.roomId,
+          name: room.name,
+          membership: room.getMyMembership(),
+          joinRule: room.getJoinRule(),
+          isDirect: room.getDMInviter() !== null,
+          memberCount: room.getJoinedMembers().length,
+          timeline: room.getLiveTimeline().getEvents().length,
+        }))
+      );
+    }
+
+    // Log our processed rooms
+    console.log('=== Room Sidebar: All Rooms Details ===');
+    rooms.forEach(room => {
+      const matrixRoom = client?.getRoom(room.id);
+      console.log({
+        roomInfo: {
+          ...room,
+          lastMessage: room.lastMessage
+            ? {
+                content: room.lastMessage.content,
+                timestamp: new Date(room.lastMessage.timestamp).toISOString(),
+                sender: room.lastMessage.sender,
+              }
+            : undefined,
+        },
+        matrixDetails: matrixRoom
+          ? {
+              name: matrixRoom.name,
+              membership: matrixRoom.getMyMembership(),
+              joinRule: matrixRoom.getJoinRule(),
+              isDirect: matrixRoom.getDMInviter() !== null,
+              memberCount: matrixRoom.getJoinedMembers().length,
+              summary: matrixRoom.summary,
+              events: matrixRoom.getLiveTimeline().getEvents().length,
+            }
+          : 'Room not in client',
+      });
+    });
+
+    console.log('=== Room Categories ===', {
+      myRooms: myRooms.map(r => ({
+        id: r.id,
+        name: r.name,
+        membership: client?.getRoom(r.id)?.getMyMembership(),
+        joinRule: client?.getRoom(r.id)?.getJoinRule(),
+      })),
+      publicRooms: publicRooms.map(r => ({
+        id: r.id,
+        name: r.name,
+        membership: client?.getRoom(r.id)?.getMyMembership(),
+        joinRule: client?.getRoom(r.id)?.getJoinRule(),
+      })),
+      privateRooms: privateRooms.map(r => ({
+        id: r.id,
+        name: r.name,
+        membership: client?.getRoom(r.id)?.getMyMembership(),
+        joinRule: client?.getRoom(r.id)?.getJoinRule(),
+      })),
+      directMessages: directMessages.map(r => ({
+        id: r.id,
+        name: r.name,
+        membership: client?.getRoom(r.id)?.getMyMembership(),
+        joinRule: client?.getRoom(r.id)?.getJoinRule(),
+      })),
+    });
+  }, [rooms, isLoading, client, myRooms, publicRooms, privateRooms, directMessages]);
 
   // Filter rooms based on search term
   const filteredRooms = {
@@ -70,33 +147,24 @@ export function RoomSidebar({ className }: RoomSidebarProps) {
   const handleRoomClick = async (roomId: string) => {
     const matrixRoom = client?.getRoom(roomId);
 
-    // If room isn't in client yet (public room we haven't joined), try to join it first
-    if (!matrixRoom) {
-      console.log('Room not synced, attempting to join:', roomId);
+    // If room isn't in client yet or we've left it, try to join it
+    if (!matrixRoom || matrixRoom.getMyMembership() === 'leave') {
+      console.log('Room needs joining:', roomId);
       try {
         await client?.joinRoom(roomId);
         // Wait a moment for the room to sync
         await new Promise(resolve => setTimeout(resolve, 1000));
-        // Try to get the room again after joining
-        const joinedRoom = client?.getRoom(roomId);
-        if (joinedRoom) {
-          const encodedRoomId = encodeURIComponent(roomId);
-          router.push(`/chat/${encodedRoomId}`);
-        } else {
-          console.warn('Room still not found after joining:', roomId);
-        }
-        return;
+        const encodedRoomId = encodeURIComponent(roomId);
+        router.push(`/chat/${encodedRoomId}`);
       } catch (error) {
         console.error('Failed to join room:', error);
-        return;
+        toast.error('Failed to join room');
       }
+      return;
     }
 
     const membership = matrixRoom.getMyMembership();
-    const joinRulesEvent = matrixRoom.currentState.getStateEvents('m.room.join_rules', '');
-    const joinRule = Array.isArray(joinRulesEvent)
-      ? joinRulesEvent[0]?.getContent().join_rule
-      : joinRulesEvent?.getContent().join_rule;
+    const joinRule = matrixRoom.getJoinRule();
 
     console.log('Room navigation attempt:', {
       roomId,
@@ -106,7 +174,6 @@ export function RoomSidebar({ className }: RoomSidebarProps) {
         name: matrixRoom.name,
         isDirect: matrixRoom.getDMInviter() !== null,
         summary: matrixRoom.summary,
-        joinRules: joinRulesEvent,
       },
     });
 
@@ -304,14 +371,8 @@ function RoomItem({
           <TooltipTrigger asChild>
             <div className="flex w-full items-center space-x-2">
               <Avatar className="h-6 w-6">
-                <AvatarImage src={room.avatarUrl} />
-                <AvatarFallback>
-                  {room.isDirect ? (
-                    <MessageSquare className="h-4 w-4 text-muted-foreground" />
-                  ) : (
-                    room.name.charAt(0).toUpperCase()
-                  )}
-                </AvatarFallback>
+                <AvatarImage src={room.avatarUrl} alt={room.name} />
+                <AvatarFallback>{room.name.charAt(0).toUpperCase()}</AvatarFallback>
               </Avatar>
               <span className="truncate font-medium">{room.name}</span>
               {room.unreadCount > 0 && (

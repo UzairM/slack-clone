@@ -714,7 +714,7 @@ export function useMatrixMessages(roomId: string) {
         }
 
         // Prepare message content based on file type
-        let messageContent: any = {
+        const messageContent: any = {
           msgtype: file.type.startsWith('image/')
             ? 'm.image'
             : file.type.startsWith('video/')
@@ -1026,7 +1026,10 @@ export function useMatrixMessages(roomId: string) {
           if (!msg.id) return msg;
 
           // Get receipt info for this event
-          const receiptTimeline = room.getReceiptsForEvent(room.findEventById(msg.id));
+          const event = room.findEventById(msg.id);
+          if (!event) return msg;
+
+          const receiptTimeline = room.getReceiptsForEvent(event);
           const readReceipt = receiptTimeline?.find(
             receipt => receipt.type === 'm.read' && receipt.userId !== client.getUserId()
           );
