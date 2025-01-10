@@ -4,8 +4,13 @@ const nextConfig = {
   swcMinify: true,
   eslint: {
     ignoreDuringBuilds: false,
-    dirs: ['src', 'app', 'lib', 'components']
-  }
+    dirs: ['src'],
+  },
+  experimental: {
+    typedRoutes: true,
+    appDir: true,
+  },
+  distDir: '.next',
 };
 
 export default nextConfig;
