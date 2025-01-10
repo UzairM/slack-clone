@@ -3,6 +3,7 @@
 import { useMatrixMessages } from '@/hooks/use-matrix-messages';
 import { useAuthStore } from '@/lib/store/auth-store';
 import { cn } from '@/lib/utils';
+import { Loader2 } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { Message } from './message';
 import { MessageInput } from './message-input';
@@ -20,13 +21,16 @@ export function ChatContainer({ roomId, className }: ChatContainerProps) {
   const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
   const [shouldAutoScroll, setShouldAutoScroll] = useState(true);
   const [activeThreadId, setActiveThreadId] = useState<string | null>(null);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
+  const lastScrollHeightRef = useRef<number>(0);
+  const isInitialLoadRef = useRef(true);
 
   const {
     messages,
-    isLoading: _isLoading,
-    error: _error,
-    hasMore: _hasMore,
-    loadMore: _loadMore,
+    isLoading,
+    error,
+    hasMore,
+    loadMore,
     sendMessage,
     editMessage,
     deleteMessage,
@@ -37,42 +41,61 @@ export function ChatContainer({ roomId, className }: ChatContainerProps) {
     uploadFile,
   } = useMatrixMessages(roomId);
 
-  // Auto-scroll to bottom when new messages arrive
+  // Handle scroll events for pagination and auto-scroll
+  const handleScroll = async () => {
+    if (!scrollContainerRef.current) return;
+
+    const { scrollTop, scrollHeight, clientHeight } = scrollContainerRef.current;
+
+    // Check if we should load more messages (near top)
+    if (scrollTop < 100 && hasMore && !isLoadingMore) {
+      setIsLoadingMore(true);
+      lastScrollHeightRef.current = scrollHeight;
+      await loadMore();
+      setIsLoadingMore(false);
+    }
+
+    // Check if we should auto-scroll (near bottom)
+    const isNearBottom = scrollHeight - (scrollTop + clientHeight) < 100;
+    setShouldAutoScroll(isNearBottom);
+  };
+
+  // Maintain scroll position when loading more messages
+  useEffect(() => {
+    if (isLoadingMore && scrollContainerRef.current) {
+      const newScrollHeight = scrollContainerRef.current.scrollHeight;
+      const scrollDiff = newScrollHeight - lastScrollHeightRef.current;
+      scrollContainerRef.current.scrollTop = scrollDiff;
+    }
+  }, [messages, isLoadingMore]);
+
+  // Auto-scroll to bottom for new messages
   useEffect(() => {
     if (scrollContainerRef.current && shouldAutoScroll) {
-      scrollContainerRef.current.scrollTop = scrollContainerRef.current.scrollHeight;
+      if (isInitialLoadRef.current) {
+        scrollContainerRef.current.scrollTop = scrollContainerRef.current.scrollHeight;
+        isInitialLoadRef.current = false;
+      } else {
+        scrollContainerRef.current.scrollTo({
+          top: scrollContainerRef.current.scrollHeight,
+          behavior: 'smooth',
+        });
+      }
     }
   }, [messages, shouldAutoScroll]);
 
-  // Reset scroll when room changes
+  // Reset scroll and loading state when room changes
   useEffect(() => {
     if (scrollContainerRef.current) {
       scrollContainerRef.current.scrollTop = scrollContainerRef.current.scrollHeight;
       setShouldAutoScroll(true);
+      setIsLoadingMore(false);
+      isInitialLoadRef.current = true;
     }
   }, [roomId]);
 
   // Return early if no userId
   if (!userId) return null;
-
-  // Handle edit start
-  const handleStartEdit = (id: string) => {
-    setEditingMessageId(id);
-  };
-
-  // Handle thread click
-  const handleThreadClick = (threadId: string) => {
-    setActiveThreadId(threadId);
-  };
-
-  // Handle scroll events to determine if we should auto-scroll
-  const handleScroll = () => {
-    if (!scrollContainerRef.current) return;
-
-    const { scrollTop, scrollHeight, clientHeight } = scrollContainerRef.current;
-    const isNearBottom = scrollHeight - (scrollTop + clientHeight) < 100;
-    setShouldAutoScroll(isNearBottom);
-  };
 
   // Filter out thread replies from the main chat
   const mainMessages = messages.filter(msg => !msg.threadId);
@@ -99,6 +122,21 @@ export function ChatContainer({ roomId, className }: ChatContainerProps) {
             dark:hover:[&::-webkit-scrollbar-thumb]:bg-muted-foreground/40"
         >
           <div className="flex flex-col justify-end min-h-full">
+            {/* Loading indicator */}
+            {isLoadingMore && (
+              <div className="flex justify-center p-4">
+                <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+              </div>
+            )}
+
+            {/* Error message */}
+            {error && (
+              <div className="p-4 text-sm text-destructive text-center">
+                Failed to load messages: {error}
+              </div>
+            )}
+
+            {/* Messages */}
             <div className="space-y-2 px-4 py-4">
               {mainMessages.map(message => (
                 <Message
@@ -110,19 +148,21 @@ export function ChatContainer({ roomId, className }: ChatContainerProps) {
                   }
                   onEdit={editMessage}
                   onDelete={deleteMessage}
-                  onStartEdit={handleStartEdit}
+                  onStartEdit={id => setEditingMessageId(id)}
                   onCancelEdit={
                     editingMessageId === message.id ? () => setEditingMessageId(null) : undefined
                   }
                   isEditing={editingMessageId === message.id}
                   onAddReaction={addReaction}
                   onRemoveReaction={removeReaction}
-                  onThreadClick={handleThreadClick}
+                  onThreadClick={id => setActiveThreadId(id)}
                 />
               ))}
             </div>
           </div>
         </div>
+
+        {/* Message input and typing indicator */}
         <div className="absolute bottom-0 left-0 right-0 border-t bg-background">
           <MessageInput onSend={sendMessage} onUpload={uploadFile} onTyping={handleUserTyping} />
           {typingUsers.length > 0 && <TypingIndicator users={typingUsers} />}

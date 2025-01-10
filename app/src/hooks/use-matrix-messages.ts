@@ -368,9 +368,20 @@ export function useMatrixMessages(roomId: string) {
 
         console.log('Loading messages for room:', roomId);
 
+        // Initialize timeline window if needed
+        if (!timelineWindowRef.current) {
+          const timelineSet = room.getUnfilteredTimelineSet();
+          timelineWindowRef.current = new TimelineWindow(client, timelineSet);
+
+          // Load initial timeline around live timeline
+          await timelineWindowRef.current.load(undefined, limit);
+
+          // Paginate backwards to get historical messages
+          await timelineWindowRef.current.paginate(Direction.Backward, limit);
+        }
+
         // Get timeline events
-        const timeline = room.getLiveTimeline();
-        const events = timeline
+        const events = timelineWindowRef.current
           .getEvents()
           .filter(event => {
             // Only include valid message events that aren't redacted
@@ -381,19 +392,24 @@ export function useMatrixMessages(roomId: string) {
             );
           })
           .map(event => convertEvent(event))
-          .filter((msg): msg is MessageEvent => msg !== null)
-          .sort((a, b) => a.timestamp - b.timestamp);
+          .filter((msg): msg is MessageEvent => msg !== null);
 
         // Add local messages that haven't been sent yet
         const localMsgs = Array.from(localMessages.values());
         const allMessages = [...events, ...localMsgs].sort((a, b) => a.timestamp - b.timestamp);
 
         setMessages(allMessages);
-        setHasMore(events.length >= limit);
+
+        // Check if we have more messages to load
+        const timeline = room.getLiveTimeline();
+        const hasMoreEvents =
+          timeline.getEvents().length >= limit || !timeline.getPaginationToken(Direction.Backward);
+        setHasMore(hasMoreEvents);
+
+        setIsLoading(false);
       } catch (err: any) {
         console.error('Failed to load messages:', err);
         setError(err.message || 'Failed to load messages');
-      } finally {
         setIsLoading(false);
       }
     },
@@ -551,24 +567,22 @@ export function useMatrixMessages(roomId: string) {
 
   // Load more messages
   const loadMore = useCallback(async () => {
-    if (!client || !isInitialized || !hasMore || isLoading) return;
+    if (!client || !isInitialized || !timelineWindowRef.current) {
+      console.warn('Cannot load more messages: Client or timeline window not initialized');
+      return;
+    }
 
     try {
       setIsLoading(true);
+
+      // Get the room
       const room = client.getRoom(roomId);
       if (!room) throw new Error('Room not found');
 
-      // Initialize timeline window if needed
-      if (!timelineWindowRef.current) {
-        const timelineSet = room.getUnfilteredTimelineSet();
-        timelineWindowRef.current = new TimelineWindow(client, timelineSet);
-      }
-
-      // Paginate backwards
+      // Paginate backwards to get more historical messages
       const hasMoreEvents = await timelineWindowRef.current.paginate(Direction.Backward, 50);
-      setHasMore(hasMoreEvents);
 
-      // Get events from the window
+      // Get all events from the window
       const events = timelineWindowRef.current
         .getEvents()
         .filter(event => {
@@ -579,24 +593,27 @@ export function useMatrixMessages(roomId: string) {
           );
         })
         .map(event => convertEvent(event))
-        .filter((msg): msg is MessageEvent => msg !== null)
-        .sort((a, b) => a.timestamp - b.timestamp);
+        .filter((msg): msg is MessageEvent => msg !== null);
 
-      if (events.length > 0) {
-        setMessages(prev => {
-          // Remove any duplicates
-          const newMessages = events.filter(event => !prev.some(msg => msg.id === event.id));
-          return [...newMessages, ...prev];
-        });
-      }
+      // Add local messages and update state
+      const localMsgs = Array.from(localMessages.values());
+      const allMessages = [...events, ...localMsgs].sort((a, b) => a.timestamp - b.timestamp);
+
+      setMessages(allMessages);
+
+      // Update hasMore based on timeline state
+      const timeline = room.getLiveTimeline();
+      const canPaginateFurther = hasMoreEvents || !timeline.getPaginationToken(Direction.Backward);
+      setHasMore(canPaginateFurther);
+
+      setIsLoading(false);
     } catch (err: any) {
       console.error('Failed to load more messages:', err);
       setError(err.message || 'Failed to load more messages');
       toast.error('Failed to load more messages');
-    } finally {
       setIsLoading(false);
     }
-  }, [client, isInitialized, hasMore, roomId, isLoading, convertEvent]);
+  }, [client, isInitialized, roomId, convertEvent, localMessages]);
 
   // Send message with thread support
   const sendMessage = useCallback(
