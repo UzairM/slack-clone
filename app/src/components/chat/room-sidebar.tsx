@@ -362,7 +362,7 @@ function RoomItem({
     <button
       onClick={onClick}
       className={cn(
-        'flex w-full flex-col items-start space-y-1 rounded-md px-2 py-1.5 text-sm transition-colors hover:bg-muted/50',
+        'flex w-full flex-col items-start space-y-1 rounded-md px-2 py-1.5 text-sm transition-colors hover:bg-[#AACFF3]/40 dark:hover:bg-muted/50',
         isActive && 'bg-muted'
       )}
     >

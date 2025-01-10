@@ -2,12 +2,6 @@
 
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { useMatrix } from '@/hooks/use-matrix';
 import { cn } from '@/lib/utils';
@@ -18,7 +12,6 @@ import {
   CheckCheck,
   Loader2,
   MessageSquare,
-  MoreHorizontal,
   Pencil,
   Trash,
 } from 'lucide-react';
@@ -360,7 +353,7 @@ export function Message({
   return (
     <div
       className={cn(
-        'group relative flex gap-3 px-4 py-3 transition-colors hover:bg-muted/30',
+        'group relative flex gap-3 px-4 py-3 transition-colors hover:bg-[#AACFF3]/40 dark:hover:bg-muted/50',
         'first:pt-4 last:pb-4',
         className
       )}
@@ -515,46 +508,67 @@ export function Message({
       </div>
 
       {/* Message actions */}
-      {!isEditing && (onEdit || onDelete) && (
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button
-              variant="ghost"
-              size="icon"
-              className="absolute right-4 top-2 hidden h-7 w-7 rounded-full opacity-0 transition-opacity group-hover:flex group-hover:opacity-100"
-            >
-              <MoreHorizontal className="h-4 w-4" />
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="w-32">
-            {onEdit && (
-              <DropdownMenuItem onClick={() => onStartEdit?.(id)} className="gap-2">
-                <Pencil className="h-4 w-4" />
-                Edit
-              </DropdownMenuItem>
-            )}
-            {!isThreadRoot && onThreadClick && (
-              <DropdownMenuItem onClick={() => onThreadClick(threadId || id)} className="gap-2">
-                <MessageSquare className="h-4 w-4" />
-                {threadId ? 'View Thread' : 'Start Thread'}
-              </DropdownMenuItem>
-            )}
-            {onDelete && (
-              <DropdownMenuItem
-                onClick={handleDelete}
-                disabled={isDeleting}
-                className="gap-2 text-destructive focus:bg-destructive focus:text-destructive-foreground"
-              >
-                {isDeleting ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                ) : (
-                  <Trash className="h-4 w-4" />
-                )}
-                {isDeleting ? 'Deleting...' : 'Delete'}
-              </DropdownMenuItem>
-            )}
-          </DropdownMenuContent>
-        </DropdownMenu>
+      {!isEditing && (onEdit || onDelete || !isThreadRoot || onThreadClick) && (
+        <div className="absolute right-4 top-2 hidden space-x-1 opacity-0 transition-opacity group-hover:flex group-hover:opacity-100">
+          {onEdit && (
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-7 w-7 rounded-full"
+                    onClick={() => onStartEdit?.(id)}
+                  >
+                    <Pencil className="h-4 w-4" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>Edit message</TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+          )}
+
+          {!isThreadRoot && onThreadClick && (
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-7 w-7 rounded-full"
+                    onClick={() => onThreadClick(threadId || id)}
+                  >
+                    <MessageSquare className="h-4 w-4" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>{threadId ? 'View Thread' : 'Start Thread'}</TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+          )}
+
+          {onDelete && (
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-7 w-7 rounded-full text-destructive hover:bg-destructive/10 hover:text-destructive"
+                    onClick={handleDelete}
+                    disabled={isDeleting}
+                  >
+                    {isDeleting ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <Trash className="h-4 w-4" />
+                    )}
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>{isDeleting ? 'Deleting...' : 'Delete message'}</TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+          )}
+        </div>
       )}
     </div>
   );
