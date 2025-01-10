@@ -895,6 +895,30 @@ export function useMatrixMessages(roomId: string) {
     async (messageId: string, reaction: string) => {
       if (!client || !isInitialized) throw new Error('Client not initialized');
 
+      // Optimistically update the UI
+      setMessages(prev =>
+        prev.map(msg => {
+          if (msg.id === messageId) {
+            const updatedReactions = { ...msg.reactions } || {};
+            if (!updatedReactions[reaction]) {
+              updatedReactions[reaction] = { count: 0, userIds: [] };
+            }
+            // Only add if user hasn't already reacted
+            if (!updatedReactions[reaction].userIds.includes(userId || '')) {
+              updatedReactions[reaction] = {
+                count: updatedReactions[reaction].count + 1,
+                userIds: [...updatedReactions[reaction].userIds, userId || ''],
+              };
+            }
+            return {
+              ...msg,
+              reactions: updatedReactions,
+            };
+          }
+          return msg;
+        })
+      );
+
       try {
         await client.sendEvent(roomId, EventType.Reaction, {
           'm.relates_to': {
@@ -904,18 +928,78 @@ export function useMatrixMessages(roomId: string) {
           },
         });
       } catch (err: any) {
+        // Revert optimistic update on error
+        setMessages(prev =>
+          prev.map(msg => {
+            if (msg.id === messageId) {
+              const updatedReactions = { ...msg.reactions } || {};
+              if (updatedReactions[reaction]) {
+                updatedReactions[reaction] = {
+                  count: Math.max(0, updatedReactions[reaction].count - 1),
+                  userIds: updatedReactions[reaction].userIds.filter(id => id !== userId),
+                };
+                if (updatedReactions[reaction].count === 0) {
+                  delete updatedReactions[reaction];
+                }
+              }
+              return {
+                ...msg,
+                reactions: updatedReactions,
+              };
+            }
+            return msg;
+          })
+        );
         console.error('Failed to add reaction:', err);
         toast.error('Failed to add reaction');
         throw err;
       }
     },
-    [client, isInitialized, roomId]
+    [client, isInitialized, roomId, userId]
   );
 
   // Remove reaction
   const removeReaction = useCallback(
     async (messageId: string, reaction: string) => {
       if (!client || !isInitialized) throw new Error('Client not initialized');
+
+      // Store original state for potential rollback
+      const originalMessages = [...messages];
+
+      // Optimistically update the UI immediately
+      setMessages(prevMessages => {
+        const updatedMessages = prevMessages.map(msg => {
+          if (msg.id !== messageId) return msg;
+
+          // Create a new reactions object
+          const updatedReactions = { ...msg.reactions };
+
+          // If this reaction exists
+          if (updatedReactions && updatedReactions[reaction]) {
+            // Remove the current user from userIds and decrease count
+            const newUserIds = updatedReactions[reaction].userIds.filter(id => id !== userId);
+            const newCount = updatedReactions[reaction].count - 1;
+
+            if (newCount <= 0 || newUserIds.length === 0) {
+              // If no users left, delete the reaction
+              delete updatedReactions[reaction];
+            } else {
+              // Update with new count and userIds
+              updatedReactions[reaction] = {
+                count: newCount,
+                userIds: newUserIds,
+              };
+            }
+          }
+
+          return {
+            ...msg,
+            reactions: updatedReactions,
+          };
+        });
+
+        return updatedMessages;
+      });
 
       try {
         const room = client.getRoom(roomId);
@@ -933,16 +1017,24 @@ export function useMatrixMessages(roomId: string) {
           );
         });
 
+        // Remove all matching reaction events
         for (const event of reactionEvents) {
           await client.redactEvent(roomId, event.getId()!);
         }
+
+        // Force a message reload to ensure consistency
+        setTimeout(() => {
+          loadMessages();
+        }, 100);
       } catch (err: any) {
+        // Revert to original state on error
+        setMessages(originalMessages);
         console.error('Failed to remove reaction:', err);
         toast.error('Failed to remove reaction');
         throw err;
       }
     },
-    [client, isInitialized, roomId, userId]
+    [client, isInitialized, roomId, userId, messages, loadMessages]
   );
 
   // Handle timeline events
@@ -950,48 +1042,62 @@ export function useMatrixMessages(roomId: string) {
     (event: MatrixEvent) => {
       if (event.getRoomId() !== roomId) return;
 
-      // Handle edited messages
-      if (event.getRelation()?.rel_type === RelationType.Replace) {
-        const targetId = event.getRelation()?.event_id;
-        if (targetId) {
-          const room = client?.getRoom(roomId);
-          const originalEvent = room?.findEventById(targetId);
-
-          setMessages(prev =>
-            prev.map(msg =>
-              msg.id === targetId
-                ? {
-                    ...msg,
-                    content: event.getContent()['m.new_content'].body,
-                    isEdited: true,
-                    editedTimestamp: event.getTs(),
-                    originalContent:
-                      originalEvent instanceof MatrixEvent
-                        ? originalEvent.getContent().body
-                        : msg.content,
-                  }
-                : msg
-            )
-          );
-          return;
-        }
-      }
-
-      // Handle redactions (deleted messages)
-      if (event.getType() === 'm.room.redaction') {
+      // Handle redactions (deleted messages and reactions)
+      if (event.isRedaction()) {
         const redactedId = event.getAssociatedId();
-        if (redactedId) {
-          setMessages(prev => prev.filter(msg => msg.id !== redactedId));
-          return;
-        }
-      }
+        const room = client?.getRoom(roomId);
+        const redactedEvent = room?.findEventById(redactedId || '');
 
-      // Handle redacted messages
-      if (event.isRedacted()) {
-        const redactionEvent = event.getRedactionEvent();
-        const redactedEvent = event.getId();
-        if (redactedEvent) {
-          setMessages(prev => prev.filter(msg => msg.id !== redactedEvent));
+        if (redactedEvent?.getType() === EventType.Reaction) {
+          // Handle reaction redaction
+          const relation = redactedEvent.getRelation();
+          if (relation?.rel_type === RelationType.Annotation) {
+            const targetMessageId = relation.event_id;
+            const reaction = relation.key;
+            const reactingSender = redactedEvent.getSender();
+
+            setMessages(prev => {
+              const updatedMessages = prev.map(msg => {
+                if (msg.id === targetMessageId && msg.reactions && reaction) {
+                  const updatedReactions = { ...msg.reactions };
+                  if (updatedReactions[reaction]) {
+                    // Remove the user from userIds and decrease count
+                    updatedReactions[reaction] = {
+                      count: Math.max(0, updatedReactions[reaction].count - 1),
+                      userIds: updatedReactions[reaction].userIds.filter(
+                        (id: string) => id !== reactingSender
+                      ),
+                    };
+                    // Remove the reaction if no users left
+                    if (
+                      updatedReactions[reaction].count === 0 ||
+                      updatedReactions[reaction].userIds.length === 0
+                    ) {
+                      delete updatedReactions[reaction];
+                    }
+
+                    return {
+                      ...msg,
+                      reactions: updatedReactions,
+                    };
+                  }
+                }
+                return msg;
+              });
+
+              return updatedMessages;
+            });
+
+            // Force a re-render by triggering loadMessages
+            setTimeout(() => {
+              loadMessages();
+            }, 100);
+
+            return;
+          }
+        } else if (redactedId) {
+          // Handle regular message redaction
+          setMessages(prev => prev.filter(msg => msg.id !== redactedId));
           return;
         }
       }
@@ -1008,9 +1114,10 @@ export function useMatrixMessages(roomId: string) {
         return;
       }
 
+      // If we get here, we might need to refresh the messages
       loadMessages();
     },
-    [roomId, loadMessages, client, convertEvent]
+    [client, roomId, convertEvent, loadMessages, messages]
   );
 
   // Handle read receipt updates
