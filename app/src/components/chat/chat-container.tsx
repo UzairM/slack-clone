@@ -24,7 +24,6 @@ export function ChatContainer({ roomId, className }: ChatContainerProps) {
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const lastScrollHeightRef = useRef<number>(0);
   const isInitialLoadRef = useRef(true);
-  const messageCountRef = useRef<number>(0);
 
   const {
     messages,
@@ -41,25 +40,6 @@ export function ChatContainer({ roomId, className }: ChatContainerProps) {
     handleUserTyping,
     uploadFile,
   } = useMatrixMessages(roomId);
-
-  // Auto-scroll when new messages arrive
-  useEffect(() => {
-    if (!scrollContainerRef.current || isLoadingMore) return;
-
-    const hasNewMessages = messages.length > messageCountRef.current;
-    messageCountRef.current = messages.length;
-
-    if (hasNewMessages && shouldAutoScroll) {
-      requestAnimationFrame(() => {
-        if (scrollContainerRef.current) {
-          scrollContainerRef.current.scrollTo({
-            top: scrollContainerRef.current.scrollHeight,
-            behavior: 'smooth',
-          });
-        }
-      });
-    }
-  }, [messages, isLoadingMore, shouldAutoScroll]);
 
   // Handle scroll events for pagination and auto-scroll
   const handleScroll = async () => {
@@ -89,6 +69,21 @@ export function ChatContainer({ roomId, className }: ChatContainerProps) {
     }
   }, [messages, isLoadingMore]);
 
+  // Auto-scroll to bottom for new messages
+  useEffect(() => {
+    if (scrollContainerRef.current && shouldAutoScroll) {
+      if (isInitialLoadRef.current) {
+        scrollContainerRef.current.scrollTop = scrollContainerRef.current.scrollHeight;
+        isInitialLoadRef.current = false;
+      } else {
+        scrollContainerRef.current.scrollTo({
+          top: scrollContainerRef.current.scrollHeight,
+          behavior: 'smooth',
+        });
+      }
+    }
+  }, [messages, shouldAutoScroll]);
+
   // Reset scroll and loading state when room changes
   useEffect(() => {
     if (scrollContainerRef.current) {
@@ -96,7 +91,6 @@ export function ChatContainer({ roomId, className }: ChatContainerProps) {
       setShouldAutoScroll(true);
       setIsLoadingMore(false);
       isInitialLoadRef.current = true;
-      messageCountRef.current = 0;
     }
   }, [roomId]);
 
