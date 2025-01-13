@@ -1,6 +1,6 @@
 'use client';
 
-import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+import { AvatarWithPresence } from '@/components/chat/avatar-with-presence';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { useMatrix } from '@/hooks/use-matrix';
 import { cn } from '@/lib/utils';
@@ -97,10 +97,12 @@ export function MemberList({ roomId, className }: MemberListProps) {
 
             return (
               <div key={member.userId} className="flex items-center gap-2 py-1">
-                <Avatar className="h-8 w-8">
-                  <AvatarImage src={avatarUrl || undefined} />
-                  <AvatarFallback>{displayName.slice(0, 2).toUpperCase()}</AvatarFallback>
-                </Avatar>
+                <AvatarWithPresence
+                  userId={member.userId}
+                  avatarUrl={avatarUrl || undefined}
+                  displayName={displayName}
+                  className="h-8 w-8"
+                />
                 <div className="flex-1 min-w-0">
                   <div className="text-sm font-medium truncate">{displayName}</div>
                   <div className="text-xs text-muted-foreground truncate">{member.userId}</div>

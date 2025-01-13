@@ -1,5 +1,6 @@
 'use client';
 
+import { AvatarWithPresence } from '@/components/chat/avatar-with-presence';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -370,10 +371,19 @@ function RoomItem({
         <Tooltip>
           <TooltipTrigger asChild>
             <div className="flex w-full items-center space-x-2">
-              <Avatar className="h-6 w-6">
-                <AvatarImage src={room.avatarUrl} alt={room.name} />
-                <AvatarFallback>{room.name.charAt(0).toUpperCase()}</AvatarFallback>
-              </Avatar>
+              {room.isDirect ? (
+                <AvatarWithPresence
+                  userId={room.id}
+                  avatarUrl={room.avatarUrl}
+                  displayName={room.name}
+                  className="h-6 w-6"
+                />
+              ) : (
+                <Avatar className="h-6 w-6">
+                  <AvatarImage src={room.avatarUrl} alt={room.name} />
+                  <AvatarFallback>{room.name.charAt(0).toUpperCase()}</AvatarFallback>
+                </Avatar>
+              )}
               <span className="truncate font-medium">{room.name}</span>
               {room.unreadCount > 0 && (
                 <span className="ml-auto flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-primary text-xs text-primary-foreground">

@@ -1,5 +1,6 @@
 'use client';
 
+import { AvatarWithPresence } from '@/components/chat/avatar-with-presence';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -128,16 +129,25 @@ export function RoomInfo({ roomId, className, onClose }: RoomInfoProps) {
           {/* Room Details */}
           <div className="space-y-4">
             <div className="flex items-center space-x-4">
-              <Avatar className="h-20 w-20">
-                <AvatarImage src={room.avatarUrl} />
-                <AvatarFallback>
-                  {room.isDirect ? (
-                    <MessageSquare className="h-10 w-10 text-muted-foreground" />
-                  ) : (
-                    room.name.charAt(0).toUpperCase()
-                  )}
-                </AvatarFallback>
-              </Avatar>
+              {room.isDirect ? (
+                <AvatarWithPresence
+                  userId={room.id}
+                  avatarUrl={room.avatarUrl}
+                  displayName={room.name}
+                  className="h-20 w-20"
+                />
+              ) : (
+                <Avatar className="h-20 w-20">
+                  <AvatarImage src={room.avatarUrl} />
+                  <AvatarFallback>
+                    {room.isDirect ? (
+                      <MessageSquare className="h-10 w-10 text-muted-foreground" />
+                    ) : (
+                      room.name.charAt(0).toUpperCase()
+                    )}
+                  </AvatarFallback>
+                </Avatar>
+              )}
               <div>
                 <div className="flex items-center space-x-2">
                   {room.isDirect ? (

@@ -1,5 +1,6 @@
 'use client';
 
+import { AvatarWithPresence } from '@/components/chat/avatar-with-presence';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -11,7 +12,6 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from '@/components/ui/alert-dialog';
-import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { useMatrix } from '@/hooks/use-matrix';
@@ -321,10 +321,12 @@ export function Message({
       )}
     >
       <div className="relative">
-        <Avatar className="h-8 w-8 ring-2 ring-background">
-          <AvatarImage src={avatarUrl || undefined} />
-          <AvatarFallback>{displayName.slice(0, 2).toUpperCase()}</AvatarFallback>
-        </Avatar>
+        <AvatarWithPresence
+          userId={sender}
+          avatarUrl={avatarUrl || undefined}
+          displayName={displayName}
+          className="ring-2 ring-background"
+        />
       </div>
 
       <div className="flex-1 space-y-1 overflow-hidden">
