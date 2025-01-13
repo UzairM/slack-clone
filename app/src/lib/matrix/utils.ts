@@ -33,14 +33,15 @@ export function getMxcUrl(
 
     const [, serverName, mediaId] = matches;
     const baseUrl = client.baseUrl.replace(/\/$/, '');
+    const accessToken = client.getAccessToken();
 
-    // For thumbnails, use the v3 thumbnail endpoint
+    // For thumbnails, use the new client/v1 thumbnail endpoint with authentication
     if (width && height) {
-      return `${baseUrl}/_matrix/media/v3/thumbnail/${serverName}/${mediaId}?width=${width}&height=${height}&method=${resizeMethod}`;
+      return `${baseUrl}/_matrix/client/v1/media/thumbnail/${serverName}/${mediaId}?width=${width}&height=${height}&method=${resizeMethod}&access_token=${accessToken}`;
     }
 
-    // For full-size images, use the v3 download endpoint
-    return `${baseUrl}/_matrix/media/v3/download/${serverName}/${mediaId}`;
+    // For full-size images, use the new client/v1 download endpoint with authentication
+    return `${baseUrl}/_matrix/client/v1/media/download/${serverName}/${mediaId}?access_token=${accessToken}`;
   } catch (error) {
     console.error('Failed to convert MXC URL:', error);
     return '';
@@ -92,12 +93,14 @@ export function isValidMxcUrl(url?: string): boolean {
  * @param client Matrix client instance
  * @param mxcUrl MXC URL to convert
  * @param fallbackUrl Optional fallback URL
+ * @param fileName Optional file name for download
  * @returns HTTP URL for the media content
  */
 export function getMatrixMediaUrl(
   client: MatrixClient | null,
   mxcUrl?: string,
-  fallbackUrl?: string
+  fallbackUrl?: string,
+  fileName?: string
 ): string {
   if (!client || !mxcUrl || !MXC_URL_PATTERN.test(mxcUrl)) {
     return fallbackUrl || '';
@@ -113,9 +116,14 @@ export function getMatrixMediaUrl(
 
     const [, serverName, mediaId] = matches;
     const baseUrl = client.baseUrl.replace(/\/$/, '');
+    const accessToken = client.getAccessToken();
 
-    // Use v3 download endpoint for media files
-    return `${baseUrl}/_matrix/media/v3/download/${serverName}/${mediaId}`;
+    // Use new client/v1 download endpoint with optional fileName
+    const downloadUrl = fileName
+      ? `${baseUrl}/_matrix/client/v1/media/download/${serverName}/${mediaId}/${encodeURIComponent(fileName)}`
+      : `${baseUrl}/_matrix/client/v1/media/download/${serverName}/${mediaId}`;
+
+    return `${downloadUrl}?access_token=${accessToken}`;
   } catch (error) {
     console.error('Failed to convert media MXC URL:', error);
     return fallbackUrl || '';

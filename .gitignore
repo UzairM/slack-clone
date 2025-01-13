@@ -49,3 +49,16 @@ dist/
 # OS files
 .DS_Store
 Thumbs.db
+
+# Synapse
+docker/synapse/data/
+docker/synapse/media_store/
+docker/synapse/homeserver.db
+docker/synapse/*.log*
+docker/synapse/*.signing.key
+docker/synapse/email-templates/
+
+# Keep configuration files
+!docker/synapse/homeserver.yaml
+!docker/synapse/email.yaml
+!docker/synapse/localhost.log.config

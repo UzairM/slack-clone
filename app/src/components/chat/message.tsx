@@ -29,13 +29,10 @@ import {
 import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
 import { Textarea } from '../ui/textarea';
-import { AudioMessage } from './audio-message';
 import { EmoteMessage } from './emote-message';
-import { FileMessage } from './file-message';
-import { ImageMessage } from './image-message';
+import { FileUploadMessage } from './file-upload-message';
 import { LocationMessage } from './location-message';
 import { MessageReactions } from './message-reactions';
-import { VideoMessage } from './video-message';
 
 interface MessageProps {
   id: string;
@@ -261,41 +258,21 @@ export function Message({
               case 'm.emote':
                 return <EmoteMessage content={content} sender={sender} />;
               case 'm.image':
-                return (
-                  <ImageMessage
-                    content={content}
-                    thumbnailUrl={thumbnailUrl}
-                    mediaUrl={mediaUrl}
-                    mimeType={mimeType}
-                  />
-                );
+              case 'm.audio':
+              case 'm.video':
               case 'm.file':
                 return (
-                  <FileMessage
+                  <FileUploadMessage
                     content={content}
+                    type={type}
                     fileName={fileName}
                     fileSize={fileSize}
                     mediaUrl={mediaUrl}
-                    mimeType={mimeType}
-                  />
-                );
-              case 'm.audio':
-                return (
-                  <AudioMessage
-                    content={content}
-                    mediaUrl={mediaUrl}
-                    duration={duration}
-                    mimeType={mimeType}
-                  />
-                );
-              case 'm.video':
-                return (
-                  <VideoMessage
-                    content={content}
                     thumbnailUrl={thumbnailUrl}
-                    mediaUrl={mediaUrl}
-                    duration={duration}
                     mimeType={mimeType}
+                    duration={duration}
+                    isUploading={status === 'sending'}
+                    error={error}
                   />
                 );
               case 'm.location':

@@ -7,21 +7,11 @@ import { Progress } from '@/components/ui/progress';
 import { Textarea } from '@/components/ui/textarea';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
-import {
-  Code,
-  FileAudio,
-  FileVideo,
-  Image as ImageIcon,
-  Link,
-  MapPin,
-  Mic,
-  Paperclip,
-  SendHorizontal,
-  Smile,
-} from 'lucide-react';
+import { Code, Link, MapPin, Mic, Paperclip, SendHorizontal, Smile, X } from 'lucide-react';
 import { ISendEventResponse } from 'matrix-js-sdk';
 import { useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
+import { FileUploadMessage } from './file-upload-message';
 
 interface MessageInputProps {
   onSend: (content: string) => Promise<ISendEventResponse | void>;
@@ -30,24 +20,47 @@ interface MessageInputProps {
   className?: string;
 }
 
+interface PendingUpload {
+  file: File;
+  message: string;
+  previewUrl?: string;
+  metadata?: {
+    width?: number;
+    height?: number;
+    duration?: number;
+  };
+}
+
 export function MessageInput({ onSend, onUpload, onTyping, className }: MessageInputProps) {
   const [content, setContent] = useState('');
   const [isSending, setIsSending] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
   const [uploadProgress, setUploadProgress] = useState<{ [key: string]: number }>({});
+  const [pendingUpload, setPendingUpload] = useState<PendingUpload | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const imageInputRef = useRef<HTMLInputElement>(null);
-  const videoInputRef = useRef<HTMLInputElement>(null);
-  const audioInputRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   const handleSubmit = async () => {
     const trimmedContent = content.trim();
-    if (!trimmedContent || isSending) return;
+    if ((!trimmedContent && !pendingUpload) || isSending) return;
 
     try {
       setIsSending(true);
-      await onSend(trimmedContent);
+
+      if (pendingUpload) {
+        // Upload file first
+        const result = await onUpload(pendingUpload.file);
+        // If there's a message, send it after the file
+        if (trimmedContent) {
+          await onSend(trimmedContent);
+        }
+        // Clear the pending upload
+        setPendingUpload(null);
+      } else {
+        // Just send the message
+        await onSend(trimmedContent);
+      }
+
       setContent('');
       setTimeout(() => {
         textareaRef.current?.focus();
@@ -89,70 +102,108 @@ export function MessageInput({ onSend, onUpload, onTyping, className }: MessageI
     onTyping();
   };
 
-  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>, type: string) => {
-    const files = e.target.files;
-    if (!files || files.length === 0) return;
-
-    // Clear the input value so the same file can be uploaded again
-    e.target.value = '';
-
-    // Convert FileList to array
-    const fileArray = Array.from(files);
-
-    for (const file of fileArray) {
-      try {
-        // Validate file size (max 50MB)
-        if (file.size > 50 * 1024 * 1024) {
-          toast.error(`File ${file.name} is too large. Maximum size is 50MB.`);
-          continue;
-        }
-
-        // Validate file type
-        if (type === 'image' && !file.type.startsWith('image/')) {
-          toast.error(`File ${file.name} is not an image.`);
-          continue;
-        } else if (type === 'video' && !file.type.startsWith('video/')) {
-          toast.error(`File ${file.name} is not a video.`);
-          continue;
-        } else if (type === 'audio' && !file.type.startsWith('audio/')) {
-          toast.error(`File ${file.name} is not an audio file.`);
-          continue;
-        }
-
-        // Initialize progress for this file
-        setUploadProgress(prev => ({ ...prev, [file.name]: 0 }));
-
-        try {
-          // Show toast while uploading
-          const result = await toast.promise(onUpload(file), {
-            loading: `Uploading ${file.name}...`,
-            success: `${file.name} uploaded successfully!`,
-            error: `Failed to upload ${file.name}`,
-          });
-
-          // Remove progress bar after successful upload
-          setUploadProgress(prev => {
-            const newProgress = { ...prev };
-            delete newProgress[file.name];
-            return newProgress;
-          });
-
-          return result;
-        } catch (error) {
-          console.error('Failed to upload file:', error);
-          // Remove progress bar on error
-          setUploadProgress(prev => {
-            const newProgress = { ...prev };
-            delete newProgress[file.name];
-            return newProgress;
-          });
-          throw error;
-        }
-      } catch (error) {
-        console.error('Failed to process file:', error);
-        toast.error(`Failed to process ${file.name}`);
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    try {
+      if (!e.target || !e.target.files || e.target.files.length === 0) {
+        console.log('No files selected');
+        return;
       }
+
+      const file = e.target.files[0];
+      console.log('Processing file:', {
+        name: file.name,
+        type: file.type,
+        size: file.size,
+      });
+
+      // Validate file size (max 50MB)
+      if (file.size > 50 * 1024 * 1024) {
+        toast.error(`File ${file.name} is too large. Maximum size is 50MB.`);
+        return;
+      }
+
+      // Create preview URL based on file type
+      let previewUrl: string | undefined;
+
+      // Images, videos, and audio can use createObjectURL directly
+      if (
+        file.type.startsWith('image/') ||
+        file.type.startsWith('video/') ||
+        file.type.startsWith('audio/')
+      ) {
+        previewUrl = URL.createObjectURL(file);
+      }
+
+      // For images, get dimensions
+      let dimensions: { width?: number; height?: number } = {};
+      if (file.type.startsWith('image/')) {
+        try {
+          const img = new Image();
+          await new Promise<void>((resolve, reject) => {
+            img.onload = () => {
+              dimensions = {
+                width: img.width,
+                height: img.height,
+              };
+              resolve();
+            };
+            img.onerror = () => reject(new Error('Failed to load image'));
+            img.src = URL.createObjectURL(file);
+          });
+          URL.revokeObjectURL(img.src); // Clean up the temporary URL
+        } catch (error) {
+          console.error('Failed to get image dimensions:', error);
+        }
+      }
+
+      // For audio/video, get duration
+      let duration: number | undefined;
+      if (file.type.startsWith('audio/') || file.type.startsWith('video/')) {
+        try {
+          const media = file.type.startsWith('audio/')
+            ? new Audio()
+            : document.createElement('video');
+          await new Promise<void>((resolve, reject) => {
+            media.onloadedmetadata = () => {
+              duration = media.duration;
+              resolve();
+            };
+            media.onerror = () => reject(new Error('Failed to load media'));
+            media.src = URL.createObjectURL(file);
+          });
+          URL.revokeObjectURL(media.src); // Clean up the temporary URL
+        } catch (error) {
+          console.error('Failed to get media duration:', error);
+        }
+      }
+
+      // Set the pending upload with additional metadata
+      setPendingUpload({
+        file,
+        message: '',
+        previewUrl,
+        metadata: {
+          ...dimensions,
+          duration,
+        },
+      });
+
+      // Focus the textarea for the message
+      textareaRef.current?.focus();
+
+      // Clear the input value so the same file can be uploaded again
+      e.target.value = '';
+    } catch (error) {
+      console.error('Failed to process file:', error);
+      toast.error('Failed to process file');
     }
+  };
+
+  const handleCancelUpload = () => {
+    if (pendingUpload?.previewUrl) {
+      URL.revokeObjectURL(pendingUpload.previewUrl);
+    }
+    setPendingUpload(null);
   };
 
   const handleRecordAudio = () => {
@@ -177,39 +228,51 @@ export function MessageInput({ onSend, onUpload, onTyping, className }: MessageI
         </div>
       ))}
 
+      {/* File preview */}
+      {pendingUpload && (
+        <div className="relative rounded-lg border bg-card p-4">
+          <Button
+            variant="ghost"
+            size="icon"
+            className="absolute right-2 top-2 h-6 w-6"
+            onClick={handleCancelUpload}
+          >
+            <X className="h-4 w-4" />
+          </Button>
+          <div className="space-y-4">
+            <FileUploadMessage
+              content={pendingUpload.file.name}
+              type={
+                pendingUpload.file.type.startsWith('image/')
+                  ? 'm.image'
+                  : pendingUpload.file.type.startsWith('video/')
+                    ? 'm.video'
+                    : pendingUpload.file.type.startsWith('audio/')
+                      ? 'm.audio'
+                      : 'm.file'
+              }
+              fileName={pendingUpload.file.name}
+              fileSize={pendingUpload.file.size}
+              mediaUrl={pendingUpload.previewUrl}
+              mimeType={pendingUpload.file.type}
+              isUploading={false}
+              width={pendingUpload.metadata?.width}
+              height={pendingUpload.metadata?.height}
+              duration={pendingUpload.metadata?.duration}
+              isPreview={true}
+            />
+          </div>
+        </div>
+      )}
+
       {/* Format buttons */}
       <div className="flex items-center gap-1">
         <input
           type="file"
           ref={fileInputRef}
           className="hidden"
-          onChange={e => handleFileUpload(e, 'file')}
-          multiple
+          onChange={handleFileUpload}
           accept="*/*"
-        />
-        <input
-          type="file"
-          ref={imageInputRef}
-          className="hidden"
-          onChange={e => handleFileUpload(e, 'image')}
-          multiple
-          accept="image/*"
-        />
-        <input
-          type="file"
-          ref={videoInputRef}
-          className="hidden"
-          onChange={e => handleFileUpload(e, 'video')}
-          multiple
-          accept="video/*"
-        />
-        <input
-          type="file"
-          ref={audioInputRef}
-          className="hidden"
-          onChange={e => handleFileUpload(e, 'audio')}
-          multiple
-          accept="audio/*"
         />
 
         <TooltipProvider>
@@ -224,49 +287,7 @@ export function MessageInput({ onSend, onUpload, onTyping, className }: MessageI
                 <Paperclip className="h-4 w-4" />
               </Button>
             </TooltipTrigger>
-            <TooltipContent>Attach file</TooltipContent>
-          </Tooltip>
-
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-8 w-8"
-                onClick={() => imageInputRef.current?.click()}
-              >
-                <ImageIcon className="h-4 w-4" />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent>Upload image</TooltipContent>
-          </Tooltip>
-
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-8 w-8"
-                onClick={() => videoInputRef.current?.click()}
-              >
-                <FileVideo className="h-4 w-4" />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent>Upload video</TooltipContent>
-          </Tooltip>
-
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-8 w-8"
-                onClick={() => audioInputRef.current?.click()}
-              >
-                <FileAudio className="h-4 w-4" />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent>Upload audio</TooltipContent>
+            <TooltipContent>Upload file</TooltipContent>
           </Tooltip>
 
           <Tooltip>
@@ -334,7 +355,7 @@ export function MessageInput({ onSend, onUpload, onTyping, className }: MessageI
           value={content}
           onChange={handleChange}
           onKeyDown={handleKeyPress}
-          placeholder="Type a message..."
+          placeholder={pendingUpload ? 'Add a message...' : 'Type a message...'}
           className="min-h-[40px] max-h-[200px] resize-none overflow-y-auto py-2"
           rows={1}
           autoFocus
@@ -344,7 +365,7 @@ export function MessageInput({ onSend, onUpload, onTyping, className }: MessageI
           size="icon"
           className="h-10 shrink-0"
           onClick={handleSubmit}
-          disabled={!content.trim() || isSending}
+          disabled={(!content.trim() && !pendingUpload) || isSending}
         >
           <SendHorizontal className="h-5 w-5" />
         </Button>

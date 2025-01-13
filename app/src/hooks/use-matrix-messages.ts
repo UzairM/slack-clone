@@ -89,17 +89,27 @@ export function useMatrixMessages(roomId: string) {
   const { client, isInitialized } = useMatrix();
   const { userId } = useAuthStore();
   const [messages, setMessages] = useState<MessageEvent[]>([]);
+  const [localMessages, setLocalMessages] = useState<Map<string, MessageEvent>>(new Map());
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [hasMore, setHasMore] = useState(true);
-  const [localMessages, setLocalMessages] = useState<Map<string, MessageEvent>>(new Map());
+  const [hasMore, setHasMore] = useState(false);
   const [typingUsers, setTypingUsers] = useState<string[]>([]);
-  const typingTimeoutRef = useRef<NodeJS.Timeout>();
   const timelineWindowRef = useRef<TimelineWindow>();
+  const typingTimeoutRef = useRef<NodeJS.Timeout>();
+  const messageStatusRef = useRef<Record<string, MessageEvent['status']>>({});
   const retryTimeoutRef = useRef<NodeJS.Timeout>();
   const maxRetries = 5;
   const [retryCount, setRetryCount] = useState(0);
-  const messageStatusRef = useRef<Record<string, MessageEvent['status']>>({});
+
+  // Log client state on initialization
+  useEffect(() => {
+    console.log('Matrix client state:', {
+      clientExists: !!client,
+      isInitialized,
+      userId,
+      roomId,
+    });
+  }, [client, isInitialized, userId, roomId]);
 
   // Convert Matrix event to message
   const convertEvent = useCallback(
@@ -757,10 +767,29 @@ export function useMatrixMessages(roomId: string) {
   // Upload file and send as message
   const uploadFile = useCallback(
     async (file: File) => {
-      if (!client || !isInitialized) throw new Error('Client not initialized');
+      console.log('uploadFile called in useMatrixMessages:', {
+        fileName: file.name,
+        fileType: file.type,
+        fileSize: file.size,
+        clientExists: !!client,
+        isInitialized,
+        userId,
+        roomId,
+      });
+
+      if (!client) {
+        console.error('Matrix client is not available');
+        throw new Error('Chat client is not available');
+      }
+
+      if (!isInitialized) {
+        console.error('Matrix client is not initialized');
+        throw new Error('Chat client is not initialized');
+      }
 
       // Create optimistic message ID
       const optimisticId = `local-${Date.now()}`;
+      console.log('Created optimistic message ID:', optimisticId);
 
       try {
         // Create optimistic message
@@ -782,13 +811,25 @@ export function useMatrixMessages(roomId: string) {
           mimeType: file.type,
         };
 
+        console.log('Created optimistic message:', {
+          id: optimisticMessage.id,
+          type: optimisticMessage.type,
+          status: optimisticMessage.status,
+        });
+
         // Add to local messages
         setLocalMessages(prev => new Map(prev).set(optimisticId, optimisticMessage));
         setMessages(prev => [...prev, optimisticMessage]);
+        console.log('Added optimistic message to local messages and messages state');
 
         // Create upload progress handler
         const progressHandler = (progress: { loaded: number; total: number }) => {
           const percentage = Math.round((progress.loaded / progress.total) * 100);
+          console.log(`Upload progress for ${file.name}:`, {
+            loaded: progress.loaded,
+            total: progress.total,
+            percentage,
+          });
           // Update optimistic message with progress
           setMessages(prev =>
             prev.map(msg =>
@@ -802,9 +843,20 @@ export function useMatrixMessages(roomId: string) {
           );
         };
 
+        console.log('Starting Matrix uploadContent for file:', {
+          name: file.name,
+          type: file.type,
+          size: file.size,
+        });
+
         // Upload the file
         const uploadResponse = await client.uploadContent(file, {
           progressHandler,
+        });
+
+        console.log('Matrix uploadContent response:', {
+          success: !!uploadResponse?.content_uri,
+          contentUri: uploadResponse?.content_uri,
         });
 
         if (!uploadResponse?.content_uri) {
@@ -829,12 +881,24 @@ export function useMatrixMessages(roomId: string) {
           url: uploadResponse.content_uri,
         };
 
+        console.log('Prepared message content:', {
+          type: messageContent.msgtype,
+          hasUrl: !!messageContent.url,
+        });
+
         // Add file type specific properties
         if (file.type.startsWith('image/')) {
+          console.log('Processing image dimensions...');
           // Get image dimensions
           const img = new Image();
           await new Promise((resolve, reject) => {
-            img.onload = resolve;
+            img.onload = () => {
+              console.log('Image loaded, dimensions:', {
+                width: img.width,
+                height: img.height,
+              });
+              resolve(undefined);
+            };
             img.onerror = reject;
             img.src = URL.createObjectURL(file);
           });
@@ -842,18 +906,30 @@ export function useMatrixMessages(roomId: string) {
           messageContent.info.h = img.height;
           URL.revokeObjectURL(img.src);
         } else if (file.type.startsWith('video/')) {
+          console.log('Processing video metadata...');
           const video = document.createElement('video');
           await new Promise((resolve, reject) => {
-            video.onloadedmetadata = resolve;
+            video.onloadedmetadata = () => {
+              console.log('Video metadata loaded:', {
+                duration: video.duration,
+              });
+              resolve(undefined);
+            };
             video.onerror = reject;
             video.src = URL.createObjectURL(file);
           });
           messageContent.info.duration = Math.round(video.duration * 1000);
           URL.revokeObjectURL(video.src);
         } else if (file.type.startsWith('audio/')) {
+          console.log('Processing audio metadata...');
           const audio = document.createElement('audio');
           await new Promise((resolve, reject) => {
-            audio.onloadedmetadata = resolve;
+            audio.onloadedmetadata = () => {
+              console.log('Audio metadata loaded:', {
+                duration: audio.duration,
+              });
+              resolve(undefined);
+            };
             audio.onerror = reject;
             audio.src = URL.createObjectURL(file);
           });
@@ -861,8 +937,14 @@ export function useMatrixMessages(roomId: string) {
           URL.revokeObjectURL(audio.src);
         }
 
+        console.log('Sending Matrix message with uploaded content...');
         // Send the message
         const result = await client.sendMessage(roomId, messageContent);
+
+        console.log('Matrix sendMessage response:', {
+          success: !!result?.event_id,
+          eventId: result?.event_id,
+        });
 
         if (!result?.event_id) {
           throw new Error('Failed to send message: No event ID received');
@@ -890,9 +972,19 @@ export function useMatrixMessages(roomId: string) {
           )
         );
 
+        console.log('File upload process completed successfully:', {
+          originalId: optimisticId,
+          finalId: result.event_id,
+          mediaUrl: uploadResponse.content_uri,
+        });
+
         return result;
       } catch (err: any) {
-        console.error('Failed to upload file:', err);
+        console.error('Failed to upload file:', {
+          error: err.message,
+          stack: err.stack,
+          phase: err.phase || 'unknown',
+        });
         // Update message status to error
         setMessages(prev =>
           prev.map(msg =>
