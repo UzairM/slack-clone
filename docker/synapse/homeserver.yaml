@@ -20,7 +20,62 @@ database:
     cp_max: 10
 
 log_config: '/data/localhost.log.config'
+
+# Media store configuration
 media_store_path: /data/media_store
+dynamic_thumbnails: true
+thumbnail_sizes:
+  - width: 32
+    height: 32
+    method: crop
+  - width: 96
+    height: 96
+    method: crop
+  - width: 320
+    height: 240
+    method: scale
+  - width: 400
+    height: 400
+    method: crop
+  - width: 640
+    height: 480
+    method: scale
+  - width: 800
+    height: 600
+    method: scale
+
+# Thumbnail generation settings
+thumbnail_requirements:
+  width: 4096
+  height: 4096
+  method: scale
+  media_type: image/jpeg,image/jpg,image/png,image/webp,image/gif
+  min_download_bytes: 0
+  max_download_bytes: 50000000
+
+# Media repository settings
+max_pending_uploads: 100
+max_upload_size: '50M'
+max_image_pixels: '32M'
+media_storage_providers: []
+
+# URL preview configuration
+url_preview_enabled: true
+url_preview_ip_range_blacklist:
+  - '127.0.0.0/8' # Loopback
+  - '10.0.0.0/8' # RFC1918 networks
+  - '172.16.0.0/12' # RFC1918 networks
+  - '192.168.0.0/16' # RFC1918 networks
+  - '169.254.0.0/16' # Link-local
+  - '::1/128' # Loopback IPv6
+  - 'fe80::/64' # Link-local IPv6
+  - 'fc00::/7' # Private IPv6
+url_preview_ip_range_whitelist: []
+max_spider_size: '10M'
+
+media_retention:
+  local_media_lifetime: 30d
+  remote_media_lifetime: 30d
 
 # Registration settings
 enable_registration: true
@@ -58,6 +113,18 @@ rc_login:
     burst_count: 3
   failed_attempts:
     per_second: 0.17
+    burst_count: 3
+
+# Media upload rate limits
+rc_uploads_per_user:
+  per_second: 0.1
+  burst_count: 10
+rc_invites:
+  per_room:
+    per_second: 0.3
+    burst_count: 3
+  per_user:
+    per_second: 0.2
     burst_count: 3
 
 trusted_key_servers:

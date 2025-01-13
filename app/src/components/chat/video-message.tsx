@@ -1,9 +1,11 @@
 'use client';
 
+import { useMatrix } from '@/hooks/use-matrix';
+import { getMatrixImageUrl, getMatrixMediaUrl } from '@/lib/matrix/utils';
 import { cn } from '@/lib/utils';
 import { Play } from 'lucide-react';
-import Image from 'next/image';
 import { useState } from 'react';
+import { MatrixImage } from '../matrix/matrix-image';
 import { Dialog, DialogContent } from '../ui/dialog';
 
 interface VideoMessageProps {
@@ -24,16 +26,19 @@ export function VideoMessage({
   className,
 }: VideoMessageProps) {
   const [isOpen, setIsOpen] = useState(false);
+  const { client } = useMatrix();
 
   if (!mediaUrl) {
     return <p className="text-sm text-muted-foreground">{content}</p>;
   }
 
-  const formatDuration = (duration: number) => {
-    const minutes = Math.floor(duration / 60);
-    const seconds = Math.floor(duration % 60);
-    return `${minutes}:${seconds.toString().padStart(2, '0')}`;
-  };
+  // Convert video URL to HTTP URL
+  const videoHttpUrl = getMatrixMediaUrl(client, mediaUrl);
+
+  // Format duration
+  const formattedDuration = duration
+    ? new Date(duration).toISOString().substr(11, 8).replace(/^00:/, '')
+    : undefined;
 
   return (
     <>
@@ -42,21 +47,25 @@ export function VideoMessage({
           onClick={() => setIsOpen(true)}
           className="relative aspect-video w-full overflow-hidden rounded-lg bg-muted transition-transform hover:scale-[1.02] active:scale-[0.98]"
         >
-          {thumbnailUrl && (
-            <Image
-              src={thumbnailUrl}
+          {thumbnailUrl ? (
+            <MatrixImage
+              mxcUrl={thumbnailUrl}
               alt={content}
               fill
               className="object-cover"
               sizes="(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 33vw"
+              width={400}
+              height={400}
+              resizeMethod="crop"
             />
+          ) : (
+            <div className="absolute inset-0 flex items-center justify-center bg-muted">
+              <Play className="h-12 w-12 text-muted-foreground" />
+            </div>
           )}
-          <div className="absolute inset-0 flex items-center justify-center bg-black/30">
-            <Play className="h-12 w-12 text-white" />
-          </div>
-          {duration && (
-            <div className="absolute bottom-2 right-2 rounded bg-black/60 px-1 text-xs text-white">
-              {formatDuration(duration)}
+          {formattedDuration && (
+            <div className="absolute bottom-2 right-2 rounded bg-black/60 px-1 py-0.5 text-xs text-white">
+              {formattedDuration}
             </div>
           )}
         </button>
@@ -66,7 +75,14 @@ export function VideoMessage({
       <Dialog open={isOpen} onOpenChange={setIsOpen}>
         <DialogContent className="max-w-4xl border-none bg-transparent p-0">
           <div className="relative aspect-video w-full overflow-hidden">
-            <video src={mediaUrl} controls autoPlay className="h-full w-full" poster={thumbnailUrl}>
+            <video
+              src={videoHttpUrl}
+              controls
+              autoPlay
+              className="h-full w-full"
+              poster={thumbnailUrl ? getMatrixImageUrl(client, thumbnailUrl) : undefined}
+            >
+              <source src={videoHttpUrl} type={mimeType} />
               Your browser does not support the video tag.
             </video>
           </div>

@@ -1,8 +1,8 @@
 'use client';
 
 import { cn } from '@/lib/utils';
-import Image from 'next/image';
 import { useState } from 'react';
+import { MatrixImage } from '../matrix/matrix-image';
 import { Dialog, DialogContent } from '../ui/dialog';
 
 interface ImageMessageProps {
@@ -33,12 +33,15 @@ export function ImageMessage({
           onClick={() => setIsOpen(true)}
           className="relative aspect-square w-full overflow-hidden rounded-lg bg-muted transition-transform hover:scale-[1.02] active:scale-[0.98]"
         >
-          <Image
-            src={thumbnailUrl || mediaUrl}
+          <MatrixImage
+            mxcUrl={thumbnailUrl || mediaUrl}
             alt={content}
             fill
             className="object-cover"
             sizes="(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 33vw"
+            width={400}
+            height={400}
+            resizeMethod="crop"
           />
         </button>
         {content && <p className="mt-1 text-sm text-muted-foreground">{content}</p>}
@@ -47,8 +50,8 @@ export function ImageMessage({
       <Dialog open={isOpen} onOpenChange={setIsOpen}>
         <DialogContent className="max-w-4xl border-none bg-transparent p-0">
           <div className="relative aspect-auto max-h-[80vh] w-full overflow-hidden">
-            <Image
-              src={mediaUrl}
+            <MatrixImage
+              mxcUrl={mediaUrl}
               alt={content}
               fill
               className="object-contain"

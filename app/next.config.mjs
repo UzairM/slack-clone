@@ -3,13 +3,38 @@ const nextConfig = {
   reactStrictMode: true,
   swcMinify: true,
   eslint: {
-    ignoreDuringBuilds: false,
-    dirs: ['src'],
+    ignoreDuringBuilds: true,
   },
   experimental: {
-    typedRoutes: true,
+    serverActions: true,
   },
-  distDir: '.next',
+  images: {
+    remotePatterns: [
+      {
+        protocol: 'http',
+        hostname: 'localhost',
+        port: '8008',
+        pathname: '/**',
+      },
+      {
+        protocol: 'https',
+        hostname: 'matrix.org',
+        pathname: '/**',
+      },
+      {
+        protocol: 'https',
+        hostname: 'matrix-client.matrix.org',
+        pathname: '/**',
+      },
+      {
+        protocol: 'https',
+        hostname: '**.dicebear.com',
+        pathname: '/**',
+      },
+    ],
+    unoptimized: false,
+    minimumCacheTTL: 60,
+  },
 };
 
 export default nextConfig;
