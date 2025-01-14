@@ -1,6 +1,5 @@
 'use client';
 
-import { AvatarWithPresence } from '@/components/chat/avatar-with-presence';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -10,7 +9,7 @@ import { useMatrixRooms } from '@/hooks/use-matrix-rooms';
 import { cn } from '@/lib/utils';
 import { Loader2, Lock, MessageSquare, Plus, Search, Settings, Users } from 'lucide-react';
 import { useParams, useRouter } from 'next/navigation';
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { toast } from 'sonner';
 import { RoomManagement } from './room-management';
 
@@ -42,94 +41,6 @@ export function RoomSidebar({ className }: RoomSidebarProps) {
 
   const { publicRooms, privateRooms, directMessages, myRooms } = getRoomCategories();
 
-  // Debug logging for room details
-  useEffect(() => {
-    console.log('=== Room Sidebar: Initial State ===', {
-      isLoading,
-      roomsCount: rooms.length,
-      clientInitialized: !!client,
-      categoryCounts: {
-        myRooms: myRooms.length,
-        publicRooms: publicRooms.length,
-        privateRooms: privateRooms.length,
-        directMessages: directMessages.length,
-      },
-    });
-
-    // Log all Matrix rooms from client
-    if (client) {
-      const allMatrixRooms = client.getRooms();
-      console.log(
-        '=== All Matrix Rooms from Client ===',
-        allMatrixRooms.map(room => ({
-          id: room.roomId,
-          name: room.name,
-          membership: room.getMyMembership(),
-          joinRule: room.getJoinRule(),
-          isDirect: room.getDMInviter() !== null,
-          memberCount: room.getJoinedMembers().length,
-          timeline: room.getLiveTimeline().getEvents().length,
-        }))
-      );
-    }
-
-    // Log our processed rooms
-    console.log('=== Room Sidebar: All Rooms Details ===');
-    rooms.forEach(room => {
-      const matrixRoom = client?.getRoom(room.id);
-      console.log({
-        roomInfo: {
-          ...room,
-          lastMessage: room.lastMessage
-            ? {
-                content: room.lastMessage.content,
-                timestamp: new Date(room.lastMessage.timestamp).toISOString(),
-                sender: room.lastMessage.sender,
-              }
-            : undefined,
-        },
-        matrixDetails: matrixRoom
-          ? {
-              name: matrixRoom.name,
-              membership: matrixRoom.getMyMembership(),
-              joinRule: matrixRoom.getJoinRule(),
-              isDirect: matrixRoom.getDMInviter() !== null,
-              memberCount: matrixRoom.getJoinedMembers().length,
-              summary: matrixRoom.summary,
-              events: matrixRoom.getLiveTimeline().getEvents().length,
-            }
-          : 'Room not in client',
-      });
-    });
-
-    console.log('=== Room Categories ===', {
-      myRooms: myRooms.map(r => ({
-        id: r.id,
-        name: r.name,
-        membership: client?.getRoom(r.id)?.getMyMembership(),
-        joinRule: client?.getRoom(r.id)?.getJoinRule(),
-      })),
-      publicRooms: publicRooms.map(r => ({
-        id: r.id,
-        name: r.name,
-        membership: client?.getRoom(r.id)?.getMyMembership(),
-        joinRule: client?.getRoom(r.id)?.getJoinRule(),
-      })),
-      privateRooms: privateRooms.map(r => ({
-        id: r.id,
-        name: r.name,
-        membership: client?.getRoom(r.id)?.getMyMembership(),
-        joinRule: client?.getRoom(r.id)?.getJoinRule(),
-      })),
-      directMessages: directMessages.map(r => ({
-        id: r.id,
-        name: r.name,
-        membership: client?.getRoom(r.id)?.getMyMembership(),
-        joinRule: client?.getRoom(r.id)?.getJoinRule(),
-      })),
-    });
-  }, [rooms, isLoading, client, myRooms, publicRooms, privateRooms, directMessages]);
-
   // Filter rooms based on search term
   const filteredRooms = {
     myRooms: myRooms.filter(room => room.name.toLowerCase().includes(searchTerm.toLowerCase())),
@@ -150,7 +61,6 @@ export function RoomSidebar({ className }: RoomSidebarProps) {
 
     // If room isn't in client yet or we've left it, try to join it
     if (!matrixRoom || matrixRoom.getMyMembership() === 'leave') {
-      console.log('Room needs joining:', roomId);
       try {
         await client?.joinRoom(roomId);
         // Wait a moment for the room to sync
@@ -158,7 +68,6 @@ export function RoomSidebar({ className }: RoomSidebarProps) {
         const encodedRoomId = encodeURIComponent(roomId);
         router.push(`/chat/${encodedRoomId}`);
       } catch (error) {
-        console.error('Failed to join room:', error);
         toast.error('Failed to join room');
       }
       return;
@@ -167,27 +76,10 @@ export function RoomSidebar({ className }: RoomSidebarProps) {
     const membership = matrixRoom.getMyMembership();
     const joinRule = matrixRoom.getJoinRule();
 
-    console.log('Room navigation attempt:', {
-      roomId,
-      membership,
-      joinRule,
-      room: {
-        name: matrixRoom.name,
-        isDirect: matrixRoom.getDMInviter() !== null,
-        summary: matrixRoom.summary,
-      },
-    });
-
     // Allow navigation to joined rooms or public rooms
     if (membership === 'join' || joinRule === 'public') {
       const encodedRoomId = encodeURIComponent(roomId);
       router.push(`/chat/${encodedRoomId}`);
-    } else {
-      console.warn('Cannot navigate to inaccessible room:', {
-        roomId,
-        membership,
-        joinRule,
-      });
     }
   };
 
@@ -363,49 +255,49 @@ function RoomItem({
     <button
       onClick={onClick}
       className={cn(
-        'flex w-full flex-col items-start space-y-1 rounded-md px-2 py-1.5 text-sm transition-colors hover:bg-[#AACFF3]/40 dark:hover:bg-muted/50',
-        isActive && 'bg-muted'
+        'group relative flex w-full flex-col gap-1 rounded-lg px-3 py-2.5 text-sm transition-all hover:bg-[#AACFF3]/40 dark:hover:bg-muted/50',
+        isActive && 'bg-muted',
+        'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary'
       )}
     >
       <TooltipProvider>
         <Tooltip>
           <TooltipTrigger asChild>
-            <div className="flex w-full items-center space-x-2">
-              {room.isDirect ? (
-                <AvatarWithPresence
-                  userId={room.id}
-                  avatarUrl={room.avatarUrl}
-                  displayName={room.name}
-                  className="h-6 w-6"
-                />
-              ) : (
-                <Avatar className="h-6 w-6">
-                  <AvatarImage src={room.avatarUrl} alt={room.name} />
-                  <AvatarFallback>{room.name.charAt(0).toUpperCase()}</AvatarFallback>
-                </Avatar>
-              )}
-              <span className="truncate font-medium">{room.name}</span>
-              {room.unreadCount > 0 && (
-                <span className="ml-auto flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-primary text-xs text-primary-foreground">
-                  {room.unreadCount}
-                </span>
-              )}
+            <div className="flex w-full items-center gap-3">
+              <Avatar className="h-9 w-9 shrink-0 transition-transform group-hover:scale-105">
+                <AvatarImage src={room.avatarUrl} alt={room.name} />
+                <AvatarFallback className="text-base font-medium">
+                  {room.name.charAt(0).toUpperCase()}
+                </AvatarFallback>
+              </Avatar>
+              <div className="flex min-w-0 flex-1 flex-col items-start gap-0.5">
+                <div className="flex w-full items-center gap-2">
+                  <span className="truncate font-medium leading-none">{room.name}</span>
+                  {room.unreadCount > 0 && (
+                    <span className="ml-auto flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full bg-primary px-1.5 text-xs font-medium text-primary-foreground">
+                      {room.unreadCount}
+                    </span>
+                  )}
+                </div>
+                {room.lastMessage && (
+                  <div className="flex w-full items-center justify-between gap-2">
+                    <span className="truncate text-xs text-muted-foreground/80">
+                      {room.lastMessage.content}
+                    </span>
+                    <span className="shrink-0 text-[10px] tabular-nums text-muted-foreground/60">
+                      {new Date(room.lastMessage.timestamp).toLocaleTimeString(undefined, {
+                        hour: 'numeric',
+                        minute: '2-digit',
+                      })}
+                    </span>
+                  </div>
+                )}
+              </div>
             </div>
           </TooltipTrigger>
           {room.topic && <TooltipContent>{room.topic}</TooltipContent>}
         </Tooltip>
       </TooltipProvider>
-      {room.lastMessage && (
-        <div className="flex w-full items-center space-x-2 pl-8">
-          <span className="truncate text-xs text-muted-foreground">{room.lastMessage.content}</span>
-          <span className="shrink-0 text-xs text-muted-foreground">
-            {new Date(room.lastMessage.timestamp).toLocaleTimeString(undefined, {
-              hour: 'numeric',
-              minute: '2-digit',
-            })}
-          </span>
-        </div>
-      )}
     </button>
   );
 }

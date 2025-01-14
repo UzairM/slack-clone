@@ -172,7 +172,7 @@ export function Message({
       await onEdit(id, editContent.trim());
       onCancelEdit?.();
     } catch (error) {
-      console.error('Failed to edit message:', error);
+      toast.error('Failed to edit message');
     } finally {
       setIsSaving(false);
     }
@@ -187,7 +187,6 @@ export function Message({
       await onDelete(id);
       // No need to manually hide the message as it will be removed from the messages list
     } catch (error) {
-      console.error('Failed to delete message:', error);
       toast.error('Failed to delete message');
     } finally {
       setIsDeleting(false);

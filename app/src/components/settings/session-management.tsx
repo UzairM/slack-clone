@@ -44,7 +44,6 @@ export function SessionManagement() {
         const devices = await getDevices();
         setSessions(devices);
       } catch (err: any) {
-        console.error('Failed to load sessions:', err);
         setError(err.message || 'Failed to load sessions');
       } finally {
         setIsLoading(false);
@@ -69,7 +68,6 @@ export function SessionManagement() {
         toast.error(result.error || 'Failed to logout');
       }
     } catch (err: any) {
-      console.error('Logout error:', err);
       toast.error(err.message || 'Failed to logout');
     } finally {
       setIsLoggingOut(false);

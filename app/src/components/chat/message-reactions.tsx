@@ -31,22 +31,8 @@ export function MessageReactions({
 }: MessageReactionsProps) {
   const { userId } = useAuthStore();
 
-  console.log('MessageReactions render:', {
-    messageId,
-    reactions,
-    userId,
-    hasReactions: Object.keys(reactions || {}).length > 0,
-  });
-
   const handleReactionClick = async (reaction: string) => {
     const hasReacted = reactions[reaction]?.userIds.includes(userId || '');
-    console.log('Reaction click:', {
-      reaction,
-      hasReacted,
-      userIds: reactions[reaction]?.userIds,
-      userId,
-    });
-
     if (hasReacted) {
       await onRemoveReaction(messageId, reaction);
     } else {
@@ -55,10 +41,6 @@ export function MessageReactions({
   };
 
   const handleEmojiSelect = async (emoji: string) => {
-    console.log('Emoji selected:', {
-      emoji,
-      messageId,
-    });
     await onAddReaction(messageId, emoji);
   };
 

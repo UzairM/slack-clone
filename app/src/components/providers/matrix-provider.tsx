@@ -16,38 +16,23 @@ export function MatrixProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     const initMatrix = async () => {
-      console.log('Initializing Matrix client:', {
-        hasAccessToken: !!accessToken,
-        hasUserId: !!userId,
-        hasServerUrl: !!process.env.NEXT_PUBLIC_MATRIX_SERVER_URL,
-      });
-
       if (!accessToken || !userId || !process.env.NEXT_PUBLIC_MATRIX_SERVER_URL) {
-        console.warn('Missing required Matrix credentials:', {
-          accessToken: !!accessToken,
-          userId: !!userId,
-          serverUrl: !!process.env.NEXT_PUBLIC_MATRIX_SERVER_URL,
-        });
         setIsInitialized(true);
         return;
       }
 
       try {
-        console.log('Creating Matrix client...');
         const matrixClient = createClient({
           baseUrl: process.env.NEXT_PUBLIC_MATRIX_SERVER_URL,
           accessToken,
           userId,
         });
 
-        console.log('Starting Matrix client...');
         await matrixClient.startClient({ initialSyncLimit: 10 });
-        console.log('Matrix client started successfully');
 
         setClient(matrixClient);
         setIsInitialized(true);
       } catch (err) {
-        console.error('Failed to initialize Matrix client:', err);
         setError(err instanceof Error ? err : new Error('Failed to initialize Matrix client'));
         setIsInitialized(true);
       }
@@ -57,20 +42,10 @@ export function MatrixProvider({ children }: { children: React.ReactNode }) {
 
     return () => {
       if (client) {
-        console.log('Stopping Matrix client...');
         client.stopClient();
       }
     };
   }, [accessToken, userId]);
-
-  // Log state changes
-  useEffect(() => {
-    console.log('Matrix client state updated:', {
-      hasClient: !!client,
-      isInitialized,
-      hasError: !!error,
-    });
-  }, [client, isInitialized, error]);
 
   return (
     <MatrixContext.Provider value={{ client, isInitialized, error }}>

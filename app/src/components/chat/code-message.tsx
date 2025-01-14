@@ -33,7 +33,6 @@ export function CodeMessage({ content, language = 'typescript', className }: Cod
         });
         setHighlightedCode(html);
       } catch (error) {
-        console.error('Failed to highlight code:', error);
         setHighlightedCode(`<pre><code>${content}</code></pre>`);
       }
     }
@@ -46,7 +45,6 @@ export function CodeMessage({ content, language = 'typescript', className }: Cod
       await navigator.clipboard.writeText(content);
       toast.success('Code copied to clipboard');
     } catch (error) {
-      console.error('Failed to copy code:', error);
       toast.error('Failed to copy code');
     }
   };

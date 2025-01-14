@@ -65,7 +65,6 @@ export function RoomManagement({ className, isOpen, onOpenChange }: RoomManageme
         }))
       );
     } catch (error) {
-      console.error('Failed to search users:', error);
       toast.error('Failed to search users');
     } finally {
       setIsSearching(false);
@@ -107,7 +106,6 @@ export function RoomManagement({ className, isOpen, onOpenChange }: RoomManageme
       onOpenChange?.(false);
       resetForm();
     } catch (error: any) {
-      console.error('Failed to create room:', error);
       toast.error(error.message || 'Failed to create room');
     } finally {
       setIsCreating(false);

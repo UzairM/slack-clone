@@ -3,7 +3,6 @@
 import { useMatrix } from '@/hooks/use-matrix';
 import { useAuthStore } from '@/lib/store/auth-store';
 import {
-  ClientEvent,
   Direction,
   EventStatus,
   EventType,
@@ -13,7 +12,6 @@ import {
   Room,
   RoomEvent,
   RoomMemberEvent,
-  SyncState,
   TimelineWindow,
 } from 'matrix-js-sdk';
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -87,7 +85,7 @@ interface MessageEvent {
 
 export function useMatrixMessages(roomId: string) {
   const { client, isInitialized } = useMatrix();
-  const { userId } = useAuthStore();
+  const { userId, accessToken } = useAuthStore();
   const [messages, setMessages] = useState<MessageEvent[]>([]);
   const [localMessages, setLocalMessages] = useState<Map<string, MessageEvent>>(new Map());
   const [isLoading, setIsLoading] = useState(true);
@@ -103,12 +101,7 @@ export function useMatrixMessages(roomId: string) {
 
   // Log client state on initialization
   useEffect(() => {
-    console.log('Matrix client state:', {
-      clientExists: !!client,
-      isInitialized,
-      userId,
-      roomId,
-    });
+    // Initialization is handled by the Matrix provider
   }, [client, isInitialized, userId, roomId]);
 
   // Convert Matrix event to message
@@ -407,7 +400,6 @@ export function useMatrixMessages(roomId: string) {
   const loadMessages = useCallback(
     async (limit = 50) => {
       if (!client || !isInitialized) {
-        console.warn('Cannot load messages: Client not initialized');
         setError('Chat client not initialized');
         return;
       }
@@ -418,7 +410,6 @@ export function useMatrixMessages(roomId: string) {
 
         const room = client.getRoom(roomId);
         if (!room) {
-          console.error('Room not found:', roomId);
           throw new Error('Room not found');
         }
 
@@ -445,7 +436,6 @@ export function useMatrixMessages(roomId: string) {
         setHasMore(!timeline.getPaginationToken(Direction.Backward));
         setIsLoading(false);
       } catch (err: any) {
-        console.error('Failed to load messages:', err);
         setError(err.message || 'Failed to load messages');
         setIsLoading(false);
       }
@@ -453,75 +443,31 @@ export function useMatrixMessages(roomId: string) {
     [client, isInitialized, roomId, convertEvent]
   );
 
-  // Handle sync state changes
-  useEffect(() => {
-    if (!client || !isInitialized) return;
-
-    const handleSyncStateChange = (state: SyncState) => {
-      if (state === SyncState.Prepared) {
-        loadMessages();
-      }
-    };
-
-    client.on(ClientEvent.Sync, handleSyncStateChange);
-
-    // Initial load
-    loadMessages();
-
-    return () => {
-      client.removeListener(ClientEvent.Sync, handleSyncStateChange);
-    };
-  }, [client, isInitialized, loadMessages]);
-
   // Send typing notification
   const sendTypingNotification = useCallback(
     async (isTyping: boolean) => {
       if (!client || !isInitialized) {
-        console.log('Cannot send typing notification: client not ready', { client, isInitialized });
         return;
       }
 
       try {
-        console.log('Sending typing notification:', {
-          roomId,
-          isTyping,
-          userId,
-          timeout: isTyping ? 4000 : 0,
-        });
-
         await client.sendTyping(roomId, isTyping, isTyping ? 4000 : 0);
-
-        // Check if typing state was updated
-        const room = client.getRoom(roomId);
-        const typingEvents = room?.currentState.getStateEvents('m.typing', '');
-        const typingEvent = Array.isArray(typingEvents) ? typingEvents[0] : typingEvents;
-        const typingContent = typingEvent?.getContent() || {};
-
-        console.log('Typing notification sent, current state:', {
-          success: true,
-          typingContent,
-          currentTypingUsers: typingContent.user_ids || [],
-        });
       } catch (error) {
-        console.error('Failed to send typing notification:', error);
+        // Silently fail typing notifications
       }
     },
-    [client, isInitialized, roomId, userId]
+    [client, isInitialized, roomId]
   );
 
   // Handle user typing with debounce
   const handleUserTyping = useCallback(() => {
-    console.log('User typing detected');
     if (typingTimeoutRef.current) {
-      console.log('Clearing previous typing timeout');
       clearTimeout(typingTimeoutRef.current);
     }
 
     sendTypingNotification(true);
 
-    console.log('Setting typing timeout for 4 seconds');
     typingTimeoutRef.current = setTimeout(() => {
-      console.log('Typing timeout reached, sending stop typing notification');
       sendTypingNotification(false);
     }, 4000);
   }, [sendTypingNotification]);
@@ -641,7 +587,6 @@ export function useMatrixMessages(roomId: string) {
   // Load more messages
   const loadMore = useCallback(async () => {
     if (!client || !isInitialized || !timelineWindowRef.current) {
-      console.warn('Cannot load more messages: Client or timeline window not initialized');
       return;
     }
 
@@ -681,7 +626,6 @@ export function useMatrixMessages(roomId: string) {
 
       setIsLoading(false);
     } catch (err: any) {
-      console.error('Failed to load more messages:', err);
       setError(err.message || 'Failed to load more messages');
       toast.error('Failed to load more messages');
       setIsLoading(false);
@@ -767,29 +711,16 @@ export function useMatrixMessages(roomId: string) {
   // Upload file and send as message
   const uploadFile = useCallback(
     async (file: File) => {
-      console.log('uploadFile called in useMatrixMessages:', {
-        fileName: file.name,
-        fileType: file.type,
-        fileSize: file.size,
-        clientExists: !!client,
-        isInitialized,
-        userId,
-        roomId,
-      });
-
       if (!client) {
-        console.error('Matrix client is not available');
         throw new Error('Chat client is not available');
       }
 
       if (!isInitialized) {
-        console.error('Matrix client is not initialized');
         throw new Error('Chat client is not initialized');
       }
 
       // Create optimistic message ID
       const optimisticId = `local-${Date.now()}`;
-      console.log('Created optimistic message ID:', optimisticId);
 
       try {
         // Create optimistic message
@@ -811,25 +742,13 @@ export function useMatrixMessages(roomId: string) {
           mimeType: file.type,
         };
 
-        console.log('Created optimistic message:', {
-          id: optimisticMessage.id,
-          type: optimisticMessage.type,
-          status: optimisticMessage.status,
-        });
-
         // Add to local messages
         setLocalMessages(prev => new Map(prev).set(optimisticId, optimisticMessage));
         setMessages(prev => [...prev, optimisticMessage]);
-        console.log('Added optimistic message to local messages and messages state');
 
         // Create upload progress handler
         const progressHandler = (progress: { loaded: number; total: number }) => {
           const percentage = Math.round((progress.loaded / progress.total) * 100);
-          console.log(`Upload progress for ${file.name}:`, {
-            loaded: progress.loaded,
-            total: progress.total,
-            percentage,
-          });
           // Update optimistic message with progress
           setMessages(prev =>
             prev.map(msg =>
@@ -843,20 +762,9 @@ export function useMatrixMessages(roomId: string) {
           );
         };
 
-        console.log('Starting Matrix uploadContent for file:', {
-          name: file.name,
-          type: file.type,
-          size: file.size,
-        });
-
         // Upload the file
         const uploadResponse = await client.uploadContent(file, {
           progressHandler,
-        });
-
-        console.log('Matrix uploadContent response:', {
-          success: !!uploadResponse?.content_uri,
-          contentUri: uploadResponse?.content_uri,
         });
 
         if (!uploadResponse?.content_uri) {
@@ -881,22 +789,12 @@ export function useMatrixMessages(roomId: string) {
           url: uploadResponse.content_uri,
         };
 
-        console.log('Prepared message content:', {
-          type: messageContent.msgtype,
-          hasUrl: !!messageContent.url,
-        });
-
         // Add file type specific properties
         if (file.type.startsWith('image/')) {
-          console.log('Processing image dimensions...');
           // Get image dimensions
           const img = new Image();
           await new Promise((resolve, reject) => {
             img.onload = () => {
-              console.log('Image loaded, dimensions:', {
-                width: img.width,
-                height: img.height,
-              });
               resolve(undefined);
             };
             img.onerror = reject;
@@ -906,13 +804,9 @@ export function useMatrixMessages(roomId: string) {
           messageContent.info.h = img.height;
           URL.revokeObjectURL(img.src);
         } else if (file.type.startsWith('video/')) {
-          console.log('Processing video metadata...');
           const video = document.createElement('video');
           await new Promise((resolve, reject) => {
             video.onloadedmetadata = () => {
-              console.log('Video metadata loaded:', {
-                duration: video.duration,
-              });
               resolve(undefined);
             };
             video.onerror = reject;
@@ -921,13 +815,9 @@ export function useMatrixMessages(roomId: string) {
           messageContent.info.duration = Math.round(video.duration * 1000);
           URL.revokeObjectURL(video.src);
         } else if (file.type.startsWith('audio/')) {
-          console.log('Processing audio metadata...');
           const audio = document.createElement('audio');
           await new Promise((resolve, reject) => {
             audio.onloadedmetadata = () => {
-              console.log('Audio metadata loaded:', {
-                duration: audio.duration,
-              });
               resolve(undefined);
             };
             audio.onerror = reject;
@@ -937,14 +827,8 @@ export function useMatrixMessages(roomId: string) {
           URL.revokeObjectURL(audio.src);
         }
 
-        console.log('Sending Matrix message with uploaded content...');
         // Send the message
         const result = await client.sendMessage(roomId, messageContent);
-
-        console.log('Matrix sendMessage response:', {
-          success: !!result?.event_id,
-          eventId: result?.event_id,
-        });
 
         if (!result?.event_id) {
           throw new Error('Failed to send message: No event ID received');
@@ -972,19 +856,8 @@ export function useMatrixMessages(roomId: string) {
           )
         );
 
-        console.log('File upload process completed successfully:', {
-          originalId: optimisticId,
-          finalId: result.event_id,
-          mediaUrl: uploadResponse.content_uri,
-        });
-
         return result;
       } catch (err: any) {
-        console.error('Failed to upload file:', {
-          error: err.message,
-          stack: err.stack,
-          phase: err.phase || 'unknown',
-        });
         // Update message status to error
         setMessages(prev =>
           prev.map(msg =>

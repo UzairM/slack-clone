@@ -94,7 +94,6 @@ export function RoomInfo({ roomId, className, onClose }: RoomInfoProps) {
 
       toast.success('Room deleted successfully');
     } catch (error: any) {
-      console.error('Failed to delete room:', error);
       toast.error(error.message || 'Failed to delete room');
     } finally {
       setIsDeleting(false);
