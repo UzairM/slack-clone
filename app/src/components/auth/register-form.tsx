@@ -37,13 +37,13 @@ export function RegisterForm() {
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { register, isAuthenticated } = useMatrixAuth();
+  const { register, login, isAuthenticated } = useMatrixAuth();
 
   // Redirect if already authenticated
   useEffect(() => {
     if (isAuthenticated) {
       const from = searchParams.get('from');
-      router.replace(from || '/');
+      router.replace(from || '/chat');
     }
   }, [isAuthenticated, router, searchParams]);
 
@@ -54,7 +54,7 @@ export function RegisterForm() {
       password: '',
       confirmPassword: '',
       email: '',
-      initialDeviceDisplayName: `Web Client (${navigator.userAgent})`,
+      initialDeviceDisplayName: 'Web Browser',
     },
     mode: 'onChange',
   });
@@ -70,9 +70,21 @@ export function RegisterForm() {
       });
 
       if (result.success) {
-        toast.success('Account created successfully');
-        // Redirect to login page
-        window.location.href = '/login';
+        // Automatically log in after registration
+        const loginResult = await login(data.username, data.password);
+
+        if (loginResult.success) {
+          toast.success('Account created successfully');
+          // Add a small delay before navigation to ensure auth state is set
+          setTimeout(() => {
+            const from = searchParams.get('from');
+            window.location.href = from || '/chat';
+          }, 1000);
+        } else {
+          // If login fails, redirect to login page
+          toast.success('Account created successfully. Please log in.');
+          router.push('/login');
+        }
       } else {
         setError(result.error || 'Registration failed');
       }
@@ -106,26 +118,6 @@ export function RegisterForm() {
                       placeholder="johndoe"
                       {...field}
                       autoComplete="username"
-                      disabled={isLoading}
-                    />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-
-            <FormField
-              control={form.control}
-              name="email"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Email (optional)</FormLabel>
-                  <FormControl>
-                    <Input
-                      type="email"
-                      placeholder="john@example.com"
-                      {...field}
-                      autoComplete="email"
                       disabled={isLoading}
                     />
                   </FormControl>
@@ -199,30 +191,6 @@ export function RegisterForm() {
                           <Eye className="h-4 w-4 text-muted-foreground" />
                         )}
                       </Button>
-                    </div>
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-
-            <FormField
-              control={form.control}
-              name="initialDeviceDisplayName"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Device Name</FormLabel>
-                  <FormControl>
-                    <div className="relative">
-                      <Input
-                        placeholder="My Device"
-                        {...field}
-                        disabled={isLoading}
-                        maxLength={100}
-                      />
-                      <div className="absolute right-2 top-2 text-xs text-muted-foreground">
-                        {field.value?.length || 0}/100
-                      </div>
                     </div>
                   </FormControl>
                   <FormMessage />

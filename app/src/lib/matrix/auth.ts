@@ -42,13 +42,9 @@ export const registrationSchema = z
 
     confirmPassword: z.string(),
 
-    email: z.string().email('Please enter a valid email address').optional().or(z.literal('')),
+    email: z.literal(''),
 
-    initialDeviceDisplayName: z
-      .string()
-      .max(100, 'Device name cannot exceed 100 characters')
-      .optional()
-      .transform(val => val || `Web Client (${new Date().toISOString()})`),
+    initialDeviceDisplayName: z.literal('Web Browser'),
   })
   .refine(data => data.password === data.confirmPassword, {
     message: 'Passwords do not match',
