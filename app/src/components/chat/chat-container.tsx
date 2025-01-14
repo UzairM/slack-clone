@@ -4,6 +4,7 @@ import { useMatrixMessages } from '@/hooks/use-matrix-messages';
 import { useAuthStore } from '@/lib/store/auth-store';
 import { cn } from '@/lib/utils';
 import { Loader2 } from 'lucide-react';
+import { useSearchParams } from 'next/navigation';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Message } from './message';
 import { MessageInput } from './message-input';
@@ -25,6 +26,8 @@ export function ChatContainer({ roomId, className }: ChatContainerProps) {
   const lastScrollHeightRef = useRef<number>(0);
   const isInitialLoadRef = useRef(true);
   const messageCountRef = useRef<number>(0);
+  const searchParams = useSearchParams();
+  const highlightedMessageId = searchParams.get('highlight');
 
   const {
     messages,
@@ -41,6 +44,16 @@ export function ChatContainer({ roomId, className }: ChatContainerProps) {
     handleUserTyping,
     uploadFile,
   } = useMatrixMessages(roomId);
+
+  // Handle message editing
+  const handleStartEdit = useCallback((id: string) => {
+    setEditingMessageId(id);
+  }, []);
+
+  // Handle thread click
+  const handleThreadClick = useCallback((id: string) => {
+    setActiveThreadId(id);
+  }, []);
 
   // Track message count changes
   useEffect(() => {
@@ -112,6 +125,53 @@ export function ChatContainer({ roomId, className }: ChatContainerProps) {
     }
   }, [roomId]);
 
+  // Handle highlighted message scroll
+  useEffect(() => {
+    if (!highlightedMessageId || !scrollContainerRef.current || isLoading) return;
+
+    // Try to find and scroll to the message
+    const scrollToMessage = () => {
+      const messageElement = document.getElementById(`message-${highlightedMessageId}`);
+      if (messageElement) {
+        // Wait a bit for the layout to stabilize
+        setTimeout(() => {
+          messageElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          // Add a temporary highlight effect
+          messageElement.classList.add('bg-[#AACFF3]/20', 'dark:bg-muted/20');
+          setTimeout(() => {
+            messageElement.classList.remove('bg-[#AACFF3]/20', 'dark:bg-muted/20');
+          }, 2000);
+        }, 100);
+        return true;
+      }
+      return false;
+    };
+
+    // If message not found and we have more messages, load them
+    const tryLoadAndScroll = async () => {
+      let attempts = 0;
+      const maxAttempts = 5;
+
+      while (!scrollToMessage() && hasMore && attempts < maxAttempts) {
+        try {
+          await loadMore();
+          attempts++;
+        } catch (error) {
+          console.error('Failed to load more messages:', error);
+          break;
+        }
+      }
+
+      // One final attempt after all messages are loaded
+      if (!scrollToMessage()) {
+        console.log('Could not find message:', highlightedMessageId);
+      }
+    };
+
+    // Initial attempt
+    tryLoadAndScroll();
+  }, [highlightedMessageId, messages, isLoading, hasMore, loadMore]);
+
   // Return early if no userId
   if (!userId) return null;
 
@@ -166,14 +226,18 @@ export function ChatContainer({ roomId, className }: ChatContainerProps) {
                   }
                   onEdit={editMessage}
                   onDelete={deleteMessage}
-                  onStartEdit={id => setEditingMessageId(id)}
+                  onStartEdit={handleStartEdit}
                   onCancelEdit={
                     editingMessageId === message.id ? () => setEditingMessageId(null) : undefined
                   }
                   isEditing={editingMessageId === message.id}
                   onAddReaction={addReaction}
                   onRemoveReaction={removeReaction}
-                  onThreadClick={id => setActiveThreadId(id)}
+                  onThreadClick={handleThreadClick}
+                  className={cn(
+                    'transition-colors duration-300',
+                    message.id === highlightedMessageId && 'bg-[#AACFF3]/20 dark:bg-muted/20'
+                  )}
                 />
               ))}
             </div>
@@ -193,7 +257,7 @@ export function ChatContainer({ roomId, className }: ChatContainerProps) {
           roomId={roomId}
           threadId={activeThreadId}
           onClose={() => setActiveThreadId(null)}
-          className="w-[400px] border-l"
+          className="w-[400px] border-l z-40"
         />
       )}
     </div>

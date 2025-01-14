@@ -233,7 +233,7 @@ export function RoomSidebar({ className }: RoomSidebarProps) {
       </div>
 
       <RoomManagement
-        className="fixed inset-y-0 left-64 z-50 w-96 border-r bg-background"
+        className="fixed inset-y-0 left-64 z-40 w-96 border-r bg-background"
         isOpen={isManagementOpen}
         onOpenChange={setIsManagementOpen}
       />

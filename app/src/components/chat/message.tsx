@@ -312,6 +312,7 @@ export function Message({
 
   return (
     <div
+      id={`message-${id}`}
       className={cn(
         'group relative flex gap-3 px-4 py-3 transition-colors hover:bg-[#AACFF3]/40 dark:hover:bg-muted/50',
         'first:pt-4 last:pb-4',

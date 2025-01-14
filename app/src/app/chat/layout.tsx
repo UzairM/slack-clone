@@ -1,6 +1,7 @@
 'use client';
 
 import { LogoutButton } from '@/components/auth/logout-button';
+import { MessageSearch } from '@/components/chat/message-search';
 import { RoomSidebar } from '@/components/chat/room-sidebar';
 import { Button } from '@/components/ui/button';
 import { ThemeToggle } from '@/components/ui/theme-toggle';
@@ -44,9 +45,14 @@ export default function ChatLayout({ children }: ChatLayoutProps) {
   return (
     <div className="flex flex-col h-screen overflow-hidden bg-background">
       {/* Header */}
-      <header className="shrink-0 border-b bg-background/80 backdrop-blur-sm">
-        <div className="container flex h-14 items-center justify-between">
+      <header className="shrink-0 border-b bg-background/80 backdrop-blur-sm sticky top-0 z-[51]">
+        <div className="container flex h-14 items-center justify-between gap-4">
           <div className="font-semibold text-foreground">ChatGenius</div>
+
+          {/* Message Search */}
+          <div className="flex-1 max-w-xl">
+            <MessageSearch />
+          </div>
 
           <div className="flex items-center gap-2">
             <Button
