@@ -172,7 +172,7 @@ export function useMatrixRooms() {
     if (!client) throw new Error('Matrix client not initialized');
 
     try {
-      const result = await client.createRoom({
+      const createRoomOptions = {
         name,
         preset: Preset.TrustedPrivateChat,
         visibility: Visibility.Private,
@@ -204,8 +204,9 @@ export function useMatrixRooms() {
               ]
             : []),
         ],
-      });
+      };
 
+      const result = await client.createRoom(createRoomOptions);
       return result.room_id;
     } catch (error: any) {
       console.error('Failed to create private room:', error);
@@ -249,20 +250,24 @@ export function useMatrixRooms() {
               guest_access: 'can_join',
             },
           },
+          ...(avatarUrl
+            ? [
+                {
+                  type: 'm.room.avatar',
+                  state_key: '',
+                  content: {
+                    url: avatarUrl,
+                  },
+                },
+              ]
+            : []),
         ],
       };
 
-      // Create the room
       const result = await client.createRoom(createRoomOptions);
 
-      // Set room name
-      await client.setRoomName(result.room_id, name);
-
-      // Publish to directory
+      // Explicitly set room visibility to ensure it's public
       await client.setRoomDirectoryVisibility(result.room_id, Visibility.Public);
-
-      // Force an immediate room list update
-      await updateRooms();
 
       return result.room_id;
     } catch (error: any) {

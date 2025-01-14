@@ -1,7 +1,7 @@
 'use client';
 
 import { ProtectedLayout } from '@/components/layouts/protected-layout';
-import { ChangePasswordForm } from '@/components/settings/change-password-form';
+import { AccountSettings } from '@/components/settings/account-settings';
 
 export default function SettingsPage() {
   return (
@@ -10,8 +10,8 @@ export default function SettingsPage() {
         <h1 className="text-3xl font-bold">Settings</h1>
         <p className="text-muted-foreground">Manage your account settings and preferences.</p>
 
-        <div className="max-w-lg mt-6">
-          <ChangePasswordForm />
+        <div className="max-w-2xl mt-6">
+          <AccountSettings />
         </div>
       </div>
     </ProtectedLayout>

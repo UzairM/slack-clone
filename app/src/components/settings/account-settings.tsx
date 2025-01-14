@@ -14,12 +14,14 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { useMatrixAuth } from '@/hooks/use-matrix-auth';
-import { Loader2 } from 'lucide-react';
+import { useAuthStore } from '@/lib/store/auth-store';
+import { Copy, Loader2 } from 'lucide-react';
 import { useState } from 'react';
 import { toast } from 'sonner';
 
 export function AccountSettings() {
   const { changePassword, deactivateAccount } = useMatrixAuth();
+  const { accessToken } = useAuthStore();
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
@@ -76,8 +78,39 @@ export function AccountSettings() {
     }
   };
 
+  // Handle copying access token
+  const handleCopyToken = () => {
+    if (accessToken) {
+      navigator.clipboard.writeText(accessToken);
+      toast.success('Access token copied to clipboard');
+    }
+  };
+
   return (
     <div className="space-y-6">
+      <Card>
+        <CardHeader>
+          <CardTitle>Access Token</CardTitle>
+          <CardDescription>Your Matrix access token for API access</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="relative">
+            <Input type="text" value={accessToken || ''} readOnly className="pr-10" />
+            <Button
+              variant="ghost"
+              size="icon"
+              className="absolute right-0 top-0"
+              onClick={handleCopyToken}
+            >
+              <Copy className="h-4 w-4" />
+            </Button>
+          </div>
+          <p className="text-sm text-muted-foreground">
+            Keep this token secure. It provides full access to your account.
+          </p>
+        </CardContent>
+      </Card>
+
       <Card>
         <CardHeader>
           <CardTitle>Change Password</CardTitle>

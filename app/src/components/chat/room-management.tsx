@@ -84,28 +84,47 @@ export function RoomManagement({ className, isOpen, onOpenChange }: RoomManageme
 
     try {
       setIsCreating(true);
+      console.log('Creating room:', {
+        type: roomType,
+        name: roomName,
+        topic: roomTopic,
+        selectedUser: selectedUserId,
+        inviteUsers: inviteUsers,
+      });
 
       let roomId;
       switch (roomType) {
         case 'public':
+          console.log('Creating public room:', { name: roomName, topic: roomTopic });
           roomId = await createPublicRoom(roomName, roomTopic);
           break;
+
         case 'private':
           const userIds = inviteUsers
             .split(',')
             .map(id => id.trim())
             .filter(Boolean);
+          console.log('Creating private room:', { name: roomName, invites: userIds });
           roomId = await createPrivateRoom(roomName, userIds);
           break;
+
         case 'direct':
+          console.log('Creating direct message room with user:', selectedUserId);
           roomId = await createDirectMessage(selectedUserId);
           break;
       }
+
+      console.log('Room created successfully:', {
+        roomId,
+        type: roomType,
+        room: client?.getRoom(roomId)?.name,
+      });
 
       toast.success('Room created successfully');
       onOpenChange?.(false);
       resetForm();
     } catch (error: any) {
+      console.error('Room creation error:', error);
       toast.error(error.message || 'Failed to create room');
     } finally {
       setIsCreating(false);
