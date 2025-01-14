@@ -3,7 +3,7 @@
 import { useMatrix } from '@/hooks/use-matrix';
 import { useMatrixAuth } from '@/hooks/use-matrix-auth';
 import { cn } from '@/lib/utils';
-import { MatrixEvent } from 'matrix-js-sdk';
+import { ClientEvent, MatrixEvent } from 'matrix-js-sdk';
 import { useEffect, useState } from 'react';
 
 interface UserPresenceProps {
@@ -11,8 +11,10 @@ interface UserPresenceProps {
   className?: string;
 }
 
+type PresenceState = 'online' | 'offline' | 'unavailable';
+
 interface PresenceInfo {
-  presence: 'online' | 'offline' | 'unavailable';
+  presence: PresenceState;
   status_msg?: string;
   last_active_ago?: number;
   currently_active?: boolean;
@@ -26,59 +28,140 @@ export function UserPresence({ userId, className }: UserPresenceProps) {
   const [error, setError] = useState<string | null>(null);
 
   // Format userId to ensure it has both @ prefix and domain
-  const formattedUserId = userId.includes(':')
-    ? userId.startsWith('@')
-      ? userId
-      : `@${userId}`
-    : userId.startsWith('@')
-      ? `${userId}:matrix.org`
-      : `@${userId}:matrix.org`;
+  // Only format if it's not already a valid Matrix ID
+  const formattedUserId = (() => {
+    // If it starts with ! it's likely a room ID - invalid for presence
+    if (userId.startsWith('!')) return null;
+
+    // If it's already a valid Matrix ID (@user:domain), use it as is
+    if (userId.match(/^@[^:]+:[^:]+$/)) return userId;
+
+    // If it has a domain but no @, add @
+    if (userId.includes(':')) return userId.startsWith('@') ? userId : `@${userId}`;
+
+    // If it starts with @ but no domain, add domain
+    if (userId.startsWith('@')) return `${userId}:matrix.org`;
+
+    // Otherwise, add both @ and domain
+    return `@${userId}:matrix.org`;
+  })();
 
   useEffect(() => {
-    const loadPresence = async () => {
+    if (!client || !formattedUserId) return;
+
+    let isMounted = true;
+
+    // Initial presence load
+    const loadInitialPresence = async () => {
       try {
         const presenceData = await getUserPresence(formattedUserId);
-        setPresence(presenceData);
+        if (!isMounted) return;
+
+        if (presenceData) {
+          setPresence(presenceData);
+          setError(null);
+        }
       } catch (err: any) {
-        console.error('Failed to load presence:', err);
+        if (!isMounted) return;
+
+        // Handle specific error cases
+        if (err.errcode === 'M_FORBIDDEN') {
+          // User's presence is not visible - show offline state
+          setPresence({
+            presence: 'offline',
+            user_id: formattedUserId,
+          });
+          return;
+        }
+
+        console.error('Failed to load initial presence:', err);
         setError(err.message || 'Failed to load presence');
       }
     };
 
-    // Initial load
-    loadPresence();
+    loadInitialPresence();
 
-    if (!client) return;
+    // Handle presence events
+    const handlePresence = (event: MatrixEvent, _state: any) => {
+      if (!isMounted) return;
 
-    // Listen for presence events
-    const onPresence = (event: MatrixEvent) => {
-      const userId = event.getType() === 'm.presence' ? event.getSender() : null;
-      if (userId === formattedUserId) {
-        const content = event.getContent();
-        setPresence({
-          presence: content.presence,
-          status_msg: content.status_msg,
-          last_active_ago: content.last_active_ago,
-          currently_active: content.currently_active,
-          user_id: userId,
-        });
+      // Only process events for our target user
+      if (event.getSender() !== formattedUserId) return;
+
+      const content = event.getContent();
+      setPresence({
+        presence: content.presence as PresenceState,
+        status_msg: content.status_msg,
+        last_active_ago: content.last_active_ago,
+        currently_active: content.currently_active,
+        user_id: event.getSender() || undefined,
+      });
+    };
+
+    // Handle global presence sync
+    const handlePresenceSync = (_state: any) => {
+      if (!isMounted) return;
+
+      const user = client.getUser(formattedUserId);
+      if (user) {
+        const presenceState = user.presence;
+        if (presenceState) {
+          setPresence({
+            presence: presenceState as PresenceState,
+            status_msg: user.presenceStatusMsg,
+            last_active_ago: user.lastActiveAgo,
+            currently_active: user.currentlyActive,
+            user_id: formattedUserId,
+          });
+        }
       }
     };
 
-    // Listen for both global presence events and specific user presence
-    client.on('Event.decrypted' as any, onPresence);
-    client.on('event' as any, onPresence);
+    // Listen for presence events
+    client.on('presence' as any, handlePresence);
+    client.on(ClientEvent.Sync, handlePresenceSync);
 
     // Start listening for presence events for this user
-    client.getPresence(formattedUserId).catch(console.error);
+    client.getPresence(formattedUserId).catch(err => {
+      if (!isMounted) return;
+
+      // Handle specific error cases
+      if (err.errcode === 'M_FORBIDDEN') {
+        // User's presence is not visible - show offline state
+        setPresence({
+          presence: 'offline',
+          user_id: formattedUserId,
+        });
+        return;
+      }
+
+      console.error('Failed to get presence:', err);
+    });
 
     return () => {
-      client.removeListener('Event.decrypted' as any, onPresence);
-      client.removeListener('event' as any, onPresence);
+      isMounted = false;
+      client.removeListener('presence' as any, handlePresence);
+      client.removeListener(ClientEvent.Sync, handlePresenceSync);
     };
   }, [client, getUserPresence, formattedUserId]);
 
-  if (error || !presence) return null;
+  // If we can't determine a valid user ID, or there's an error, show offline state
+  if (!formattedUserId || error) {
+    return (
+      <div className={cn('flex items-center gap-2', className)}>
+        <span className={cn('h-2 w-2 rounded-full bg-gray-500')} />
+      </div>
+    );
+  }
+
+  // If we're still loading or have no presence data, show offline state
+  if (!presence) {
+    return (
+      <div className={cn('flex items-center gap-2', className)}>
+        <span className={cn('h-2 w-2 rounded-full bg-gray-500')} />
+      </div>
+    );
+  }
 
   return (
     <div className={cn('flex items-center gap-2', className)}>

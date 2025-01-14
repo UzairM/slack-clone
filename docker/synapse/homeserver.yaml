@@ -9,6 +9,24 @@ listeners:
       - names: [client, federation]
         compress: false
 
+# User directory configuration
+user_directory:
+  enabled: true
+  search_all_users: true
+  prefer_local_users: true
+  show_all_users: true
+  search_list_all_users: true
+  allow_public_rooms_without_auth: true
+  allow_list_all_users: true
+  search_results_limit_per_query: 100
+  refresh_interval_seconds: 300
+  update_user_directory: true
+
+# Enable user search
+enable_search: true
+search_prefer_local_users: true
+search_all_users: true
+
 database:
   name: psycopg2
   args:
@@ -129,3 +147,11 @@ rc_invites:
 
 trusted_key_servers:
   - server_name: 'matrix.org'
+
+# Presence configuration
+presence:
+  enabled: true
+  presence_stream_timeout_seconds: 60
+  presence_invite_timeout: 60
+  presence_updates_per_room: 100
+  presence_updates_per_user: 100
