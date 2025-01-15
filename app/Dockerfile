@@ -7,10 +7,10 @@ WORKDIR /app
 ENV NEXT_TELEMETRY_DISABLED=1
 ENV HUSKY=0
 ENV HUSKY_SKIP_INSTALL=1
-ENV NODE_ENV=production
 
-# Copy package files
-COPY package.json package-lock.json ./
+# Copy package files and env file first
+COPY package.json package-lock.json .env.production ./
+RUN cp .env.production .env
 
 # Install dependencies with dev dependencies for build
 RUN npm pkg delete scripts.prepare && \
