@@ -47,6 +47,20 @@ services:
       - redis-data:/data
     restart: unless-stopped
 
+  bot:
+    build:
+      context: ./app
+      dockerfile: Dockerfile.bot
+    container_name: matrix-bot
+    volumes:
+      - ./app:/app
+      - /app/node_modules
+    env_file:
+      - ./app/.env.bot
+    restart: unless-stopped
+    depends_on:
+      - synapse
+
 volumes:
   postgres-data:
   redis-data:

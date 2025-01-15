@@ -3,7 +3,7 @@ packer_cache/
 redis/data/
 postgres\data\
 synapse/data/
-
+.env
 # Crash log
 crash.log
 
