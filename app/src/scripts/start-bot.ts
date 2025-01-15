@@ -2,13 +2,15 @@ import dotenv from 'dotenv';
 import path from 'path';
 import { MatrixBot } from '../lib/bot/matrix-bot';
 
-// Load environment variables from .env.bot
-dotenv.config({ path: path.resolve(process.cwd(), '.env.bot') });
-
 async function main() {
+  // Load environment variables from .env.bot
+  const envPath = path.resolve(process.cwd(), '.env.bot');
+  console.log('Loading environment from:', envPath);
+  dotenv.config({ path: envPath });
+
   // Check required environment variables
   const requiredEnvVars = [
-    'MATRIX_SERVER_URL',
+    'MATRIX_HOMESERVER_URL',
     'MATRIX_USERNAME',
     'MATRIX_PASSWORD',
     'OPENAI_API_KEY',
@@ -23,7 +25,7 @@ async function main() {
 
   // Create and start the bot
   const bot = new MatrixBot(
-    process.env.MATRIX_SERVER_URL!,
+    process.env.MATRIX_HOMESERVER_URL!,
     process.env.MATRIX_USERNAME!,
     process.env.MATRIX_PASSWORD!,
     process.env.OPENAI_API_KEY!,
@@ -53,4 +55,7 @@ async function main() {
   }
 }
 
-main().catch(console.error);
+main().catch(error => {
+  console.error('Unhandled error:', error);
+  process.exit(1);
+});

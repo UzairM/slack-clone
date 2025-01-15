@@ -1,3 +1,10 @@
+import { Document } from '@langchain/core/documents';
+import { StringOutputParser } from '@langchain/core/output_parsers';
+import { PromptTemplate } from '@langchain/core/prompts';
+import { RunnableSequence } from '@langchain/core/runnables';
+import { ConsoleCallbackHandler } from '@langchain/core/tracers/console';
+import { ChatOpenAI, OpenAIEmbeddings } from '@langchain/openai';
+import { Pinecone } from '@pinecone-database/pinecone';
 import {
   createClient,
   EventType,
@@ -10,25 +17,181 @@ import {
 } from 'matrix-js-sdk';
 import OpenAI from 'openai';
 
+interface PineconeMetadata {
+  text: string;
+  [key: string]: any;
+}
+
+interface PineconeMatch {
+  id: string;
+  score: number;
+  metadata?: PineconeMetadata;
+  values?: number[];
+}
+
 export class MatrixBot {
   private client: MatrixClient | null = null;
   private openai: OpenAI;
+  private pineconeClient: Pinecone | null = null;
+  private pineconeIndex: any = null;
+  private chatModel: ChatOpenAI;
+  private embeddings: OpenAIEmbeddings;
   private isRunning: boolean = false;
   private readonly pollingInterval: number;
+  private readonly callbacks = [new ConsoleCallbackHandler()];
 
   constructor(
     private readonly homeserverUrl: string,
     private readonly username: string,
     private readonly password: string,
     private readonly openaiApiKey: string,
-    private readonly openaiModel: string = 'gpt-3.5-turbo', // Default model if not specified
-    pollingIntervalMs?: number // Optional polling interval in milliseconds
+    private readonly openaiModel: string = 'gpt-3.5-turbo',
+    pollingIntervalMs?: number
   ) {
     this.openai = new OpenAI({
       apiKey: this.openaiApiKey,
     });
-    // Default to 5000ms (5 seconds) if not specified
     this.pollingInterval = pollingIntervalMs || 5000;
+
+    // Initialize chat model with consistent callbacks
+    this.chatModel = new ChatOpenAI({
+      modelName: process.env.OPENAI_MODEL || this.openaiModel,
+      temperature: 0.7,
+      openAIApiKey: this.openaiApiKey,
+      callbacks: this.callbacks,
+      verbose: true,
+    });
+
+    // Initialize embeddings with consistent callbacks
+    this.embeddings = new OpenAIEmbeddings({
+      openAIApiKey: this.openaiApiKey,
+      modelName: process.env.OPENAI_EMBEDDINGS_MODEL || 'text-embedding-3-large',
+      dimensions: 3072,
+      verbose: true,
+    });
+  }
+
+  private async initializeVectorStore() {
+    try {
+      console.log('Initializing Pinecone connection...');
+
+      this.pineconeClient = new Pinecone({
+        apiKey: process.env.PINECONE_API_KEY!,
+      });
+
+      this.pineconeIndex = this.pineconeClient.Index(process.env.PINECONE_INDEX!);
+
+      console.log('Pinecone initialized successfully');
+    } catch (error) {
+      console.error('Error initializing Pinecone:', error);
+      throw error;
+    }
+  }
+
+  private async getContextualResponse(query: string): Promise<string> {
+    try {
+      if (!this.pineconeIndex) {
+        console.log('Pinecone index not available, falling back to direct response');
+        const chain = RunnableSequence.from([
+          PromptTemplate.fromTemplate(
+            `You are a helpful assistant in a Matrix chat room. Be concise and friendly in your responses.
+
+            Question: {question}`
+          ),
+          this.chatModel,
+          new StringOutputParser(),
+        ]).withConfig({ callbacks: this.callbacks });
+
+        return await chain.invoke({ question: query });
+      }
+
+      // Try to get contextual response from Pinecone
+      try {
+        console.log('Generating query embedding...');
+        const queryEmbedding = await this.embeddings.embedQuery(query);
+        console.log('Generated embedding with dimension:', queryEmbedding.length);
+
+        console.log('Querying Pinecone for similar vectors...');
+        const queryResponse = await this.pineconeIndex.query({
+          vector: queryEmbedding,
+          topK: 3,
+          includeMetadata: true,
+        });
+        console.log('Found matches:', queryResponse.matches?.length || 0);
+
+        // Format documents
+        const relevantDocs = queryResponse.matches.map((match: PineconeMatch) => {
+          if (match.metadata) {
+            console.log('Match similarity:', match.score);
+            return new Document({
+              pageContent: match.metadata.text || '',
+              metadata: { ...match.metadata, similarity: match.score },
+            });
+          }
+          return new Document({
+            pageContent: '',
+            metadata: { similarity: match.score },
+          });
+        });
+
+        // Create the RAG prompt template
+        const promptTemplate = PromptTemplate.fromTemplate(`
+          You are a helpful assistant in a Matrix chat room. Be concise and friendly in your responses.
+          Use the following context to help answer the question, but don't mention that you're using any context.
+          If the context isn't relevant, just respond based on your general knowledge.
+
+          Context: {context}
+
+          Question: {question}
+        `);
+
+        // Format documents into a string
+        const formatDocuments = (docs: Document[]) => {
+          return docs.map((doc, i) => `Document ${i + 1}:\n${doc.pageContent}`).join('\n\n');
+        };
+
+        console.log('Creating chain with context...');
+        // Create the chain with consistent callbacks
+        const chain = RunnableSequence.from([
+          {
+            context: (input: { question: string; context: Document[] }) =>
+              formatDocuments(input.context),
+            question: (input: { question: string; context: Document[] }) => input.question,
+          },
+          promptTemplate,
+          this.chatModel,
+          new StringOutputParser(),
+        ]).withConfig({ callbacks: this.callbacks });
+
+        console.log('Executing chain...');
+        const response = await chain.invoke({
+          question: query,
+          context: relevantDocs,
+        });
+        console.log('Chain execution complete');
+
+        return response;
+      } catch (error) {
+        console.error('Error in RAG process:', error);
+        console.log('Falling back to direct response');
+
+        // Use the same chain structure for fallback
+        const chain = RunnableSequence.from([
+          PromptTemplate.fromTemplate(
+            `You are a helpful assistant in a Matrix chat room. Be concise and friendly in your responses.
+
+            Question: {question}`
+          ),
+          this.chatModel,
+          new StringOutputParser(),
+        ]).withConfig({ callbacks: this.callbacks });
+
+        return await chain.invoke({ question: query });
+      }
+    } catch (error) {
+      console.error('Error getting response:', error);
+      throw error;
+    }
   }
 
   private async login(): Promise<{ access_token: string; user_id: string }> {
@@ -60,6 +223,9 @@ export class MatrixBot {
     }
 
     try {
+      // Initialize vector store
+      await this.initializeVectorStore();
+
       // Login and get access token
       console.log('Logging in...');
       const { access_token, user_id } = await this.login();
@@ -89,8 +255,8 @@ export class MatrixBot {
         const messageContent = event.getContent().body;
 
         try {
-          // Get AI response
-          const response = await this.getAIResponse(messageContent);
+          // Get contextual AI response
+          const response = await this.getContextualResponse(messageContent);
 
           // Send response back to the room
           await this.client!.sendMessage(room.roomId, {
@@ -253,33 +419,6 @@ export class MatrixBot {
       console.log(`Joined room: ${roomId}`);
     } catch (error) {
       console.error(`Error joining room ${roomId}:`, error);
-      throw error;
-    }
-  }
-
-  private async getAIResponse(message: string): Promise<string> {
-    try {
-      const completion = await this.openai.chat.completions.create({
-        messages: [
-          {
-            role: 'system',
-            content:
-              'You are a helpful assistant in a Matrix chat room. Be concise and friendly in your responses.',
-          },
-          {
-            role: 'user',
-            content: message,
-          },
-        ],
-        model: this.openaiModel,
-      });
-
-      return (
-        completion.choices[0]?.message?.content ||
-        "I apologize, but I couldn't generate a response."
-      );
-    } catch (error) {
-      console.error('Error getting AI response:', error);
       throw error;
     }
   }
