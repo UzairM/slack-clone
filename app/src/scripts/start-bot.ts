@@ -4,13 +4,14 @@ import { MatrixBot } from '../lib/bot/matrix-bot';
 
 async function main() {
   // Load environment variables from .env.bot
-  const envPath = path.resolve(process.cwd(), '.env.bot');
+  const envPath = path.resolve(process.cwd(), process.env.DOCKER ? '.env.bot.docker' : '.env.bot');
   console.log('Loading environment from:', envPath);
   dotenv.config({ path: envPath });
 
   // Check required environment variables
   const requiredEnvVars = [
     'MATRIX_HOMESERVER_URL',
+    'MATRIX_SERVER_NAME',
     'MATRIX_USERNAME',
     'MATRIX_PASSWORD',
     'OPENAI_API_KEY',

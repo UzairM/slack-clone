@@ -48,6 +48,9 @@ export class MatrixBot {
     private readonly openaiModel: string = 'gpt-3.5-turbo',
     pollingIntervalMs?: number
   ) {
+    this.homeserverUrl = process.env.DOCKER
+      ? this.homeserverUrl.replace('localhost', 'synapse')
+      : this.homeserverUrl;
     this.openai = new OpenAI({
       apiKey: this.openaiApiKey,
     });
@@ -317,7 +320,7 @@ export class MatrixBot {
       try {
         // Get current list of public rooms
         const serverUrl = new URL(this.homeserverUrl);
-        const serverName = serverUrl.hostname;
+        const serverName = process.env.MATRIX_SERVER_NAME || 'localhost';
         const response = await this.client.publicRooms({
           limit: 1000,
           server: serverName,
@@ -361,7 +364,7 @@ export class MatrixBot {
     try {
       console.log('Fetching public rooms...');
       const serverUrl = new URL(this.homeserverUrl);
-      const serverName = serverUrl.hostname;
+      const serverName = process.env.MATRIX_SERVER_NAME || 'localhost';
 
       // Get list of public rooms
       const response = await this.client.publicRooms({
