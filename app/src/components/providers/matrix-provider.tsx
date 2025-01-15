@@ -1,15 +1,14 @@
 'use client';
 
+import { createClient } from '@/lib/matrix/sdk';
 import type { MatrixContextType } from '@/lib/matrix/types';
 import { useAuthStore } from '@/lib/store/auth-store';
-import type { MatrixClient } from 'matrix-js-sdk';
-import { createClient } from 'matrix-js-sdk';
 import { createContext, useEffect, useState } from 'react';
 
 export const MatrixContext = createContext<MatrixContextType | undefined>(undefined);
 
 export function MatrixProvider({ children }: { children: React.ReactNode }) {
-  const [client, setClient] = useState<MatrixClient | null>(null);
+  const [client, setClient] = useState<MatrixContextType['client']>(null);
   const [isInitialized, setIsInitialized] = useState(false);
   const [error, setError] = useState<Error | null>(null);
   const { accessToken, userId } = useAuthStore();

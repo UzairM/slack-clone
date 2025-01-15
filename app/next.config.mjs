@@ -5,6 +5,19 @@ const nextConfig = {
   eslint: {
     ignoreDuringBuilds: true,
   },
+  webpack: (config, { isServer }) => {
+    config.resolve.alias = {
+      ...config.resolve.alias,
+      '@matrix-org/matrix-sdk-crypto-wasm': false,
+    };
+    return config;
+  },
+  experimental: {
+    serverActions: {
+      allowedOrigins: ['localhost:3000'],
+      bodySizeLimit: '2mb',
+    },
+  },
   images: {
     remotePatterns: [
       {

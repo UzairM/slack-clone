@@ -1,7 +1,6 @@
 'use client';
 
 import { useMatrix } from '@/hooks/use-matrix';
-import { useAuthStore } from '@/lib/store/auth-store';
 import {
   Direction,
   EventStatus,
@@ -13,7 +12,8 @@ import {
   RoomEvent,
   RoomMemberEvent,
   TimelineWindow,
-} from 'matrix-js-sdk';
+} from '@/lib/matrix/sdk';
+import { useAuthStore } from '@/lib/store/auth-store';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 
@@ -962,7 +962,7 @@ export function useMatrixMessages(roomId: string) {
       setMessages(prev =>
         prev.map(msg => {
           if (msg.id === messageId) {
-            const updatedReactions = { ...msg.reactions } || {};
+            const updatedReactions = msg.reactions ? { ...msg.reactions } : {};
             if (!updatedReactions[reaction]) {
               updatedReactions[reaction] = { count: 0, userIds: [] };
             }
@@ -995,7 +995,7 @@ export function useMatrixMessages(roomId: string) {
         setMessages(prev =>
           prev.map(msg => {
             if (msg.id === messageId) {
-              const updatedReactions = { ...msg.reactions } || {};
+              const updatedReactions = msg.reactions ? { ...msg.reactions } : {};
               if (updatedReactions[reaction]) {
                 updatedReactions[reaction] = {
                   count: Math.max(0, updatedReactions[reaction].count - 1),

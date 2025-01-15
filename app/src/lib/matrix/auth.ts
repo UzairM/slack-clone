@@ -1,5 +1,5 @@
-import { createClient } from 'matrix-js-sdk';
 import { z } from 'zod';
+import { createClient } from './sdk';
 
 const MATRIX_SERVER_URL = process.env.NEXT_PUBLIC_MATRIX_SERVER_URL || 'http://localhost:8008';
 
@@ -116,16 +116,11 @@ export type ChangePasswordData = z.infer<typeof changePasswordSchema>;
 
 // Create a Matrix client instance
 export const createMatrixClient = (accessToken?: string, userId?: string) => {
-  const config: any = {
+  return createClient({
     baseUrl: MATRIX_SERVER_URL,
     accessToken,
-  };
-
-  if (userId) {
-    config.userId = userId.startsWith('@') ? userId : `@${userId}`;
-  }
-
-  return createClient(config);
+    userId: userId?.startsWith('@') ? userId : userId ? `@${userId}` : undefined,
+  });
 };
 
 // Register a new user

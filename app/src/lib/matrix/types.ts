@@ -1,4 +1,4 @@
-import type { MatrixClient } from 'matrix-js-sdk';
+import type { MatrixClient } from './sdk';
 
 export interface MatrixContextType {
   client: MatrixClient | null;
