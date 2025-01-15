@@ -9,8 +9,7 @@ ENV HUSKY=0
 ENV HUSKY_SKIP_INSTALL=1
 
 # Copy package files and env file first
-COPY package.json package-lock.json .env.production ./
-RUN cp .env.production .env
+COPY package.json package-lock.json
 
 # Install dependencies with dev dependencies for build
 RUN npm pkg delete scripts.prepare && \
