@@ -7,7 +7,7 @@ WORKDIR /app
 ENV NEXT_TELEMETRY_DISABLED=1
 ENV HUSKY=0
 ENV HUSKY_SKIP_INSTALL=1
-
+ENV NODE_ENV=production
 
 # Copy package files
 COPY package.json package-lock.json ./
@@ -19,9 +19,11 @@ RUN npm pkg delete scripts.prepare && \
 # Copy source code
 COPY . .
 
-# Build the Next.js application with specific configuration
-RUN NODE_ENV=production \
-    npm run build
+# Build the Next.js application
+RUN npm run build
+
+# Remove development dependencies
+RUN npm prune --production
 
 # Expose port 80
 EXPOSE 80

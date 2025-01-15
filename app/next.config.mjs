@@ -46,6 +46,10 @@ const nextConfig = {
     unoptimized: true,
     minimumCacheTTL: 60,
   },
+  // Add these settings to ensure proper asset handling
+  poweredByHeader: false,
+  generateEtags: false,
+  compress: true,
 };
 
 export default nextConfig;
