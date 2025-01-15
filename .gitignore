@@ -7,6 +7,9 @@ synapse/data/
 # Crash log
 crash.log
 
+# Synapse configuration
+docker/synapse/homeserver.yaml
+
 # https://www.packer.io/guides/hcl/variables
 # Exclude all .pkrvars.hcl files, which are likely to contain sensitive data,
 # such as password, private keys, and other secrets. These should not be part of
@@ -62,3 +65,4 @@ docker/synapse/email-templates/
 !docker/synapse/homeserver.yaml
 !docker/synapse/email.yaml
 !docker/synapse/localhost.log.config
+docker/synapse/homeserver.yaml
