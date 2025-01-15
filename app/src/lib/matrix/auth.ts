@@ -1,7 +1,11 @@
 import { z } from 'zod';
 import { createClient } from './sdk';
 
-const MATRIX_SERVER_URL = process.env.NEXT_PUBLIC_MATRIX_SERVER_URL || 'http://localhost:8008';
+if (!process.env.NEXT_PUBLIC_MATRIX_SERVER_URL) {
+  throw new Error('NEXT_PUBLIC_MATRIX_SERVER_URL environment variable is not set');
+}
+
+const MATRIX_SERVER_URL = process.env.NEXT_PUBLIC_MATRIX_SERVER_URL;
 
 // Username validation rules
 const usernameRegex = /^[a-z0-9._=\-/]+$/;
