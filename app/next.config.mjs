@@ -5,6 +5,12 @@ const nextConfig = {
   eslint: {
     ignoreDuringBuilds: true,
   },
+  output: 'standalone',
+  experimental: {
+    // Disable static generation for pages that need dynamic data
+    workerThreads: false,
+    cpus: 1,
+  },
   webpack: (config, { isServer }) => {
     config.resolve.alias = {
       ...config.resolve.alias,
@@ -37,7 +43,7 @@ const nextConfig = {
         pathname: '/**',
       },
     ],
-    unoptimized: false,
+    unoptimized: true,
     minimumCacheTTL: 60,
   },
 };
