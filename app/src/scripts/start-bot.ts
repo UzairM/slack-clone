@@ -14,6 +14,9 @@ async function main() {
     'MATRIX_USERNAME',
     'MATRIX_PASSWORD',
     'OPENAI_API_KEY',
+    'PINECONE_API_KEY',
+    'PINECONE_ENVIRONMENT',
+    'PINECONE_INDEX',
   ];
 
   for (const envVar of requiredEnvVars) {
@@ -29,11 +32,13 @@ async function main() {
     process.env.MATRIX_USERNAME!,
     process.env.MATRIX_PASSWORD!,
     process.env.OPENAI_API_KEY!,
-    process.env.OPENAI_MODEL || 'gpt-3.5-turbo' // Use default if not specified
+    process.env.OPENAI_MODEL || 'gpt-4-turbo-preview' // Use default if not specified
   );
 
   try {
-    console.log(`Starting bot with OpenAI model: ${process.env.OPENAI_MODEL || 'gpt-3.5-turbo'}`);
+    console.log(
+      `Starting bot with OpenAI model: ${process.env.OPENAI_MODEL || 'gpt-4-turbo-preview'}`
+    );
     await bot.start();
     console.log('Bot is running and auto-joining public rooms...');
 

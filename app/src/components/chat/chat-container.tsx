@@ -64,7 +64,8 @@ export function ChatContainer({ roomId, className }: ChatContainerProps) {
     if (messages.length > prevCount && shouldAutoScroll) {
       requestAnimationFrame(() => {
         if (scrollContainerRef.current) {
-          scrollContainerRef.current.scrollTop = scrollContainerRef.current.scrollHeight;
+          const { scrollHeight, clientHeight } = scrollContainerRef.current;
+          scrollContainerRef.current.scrollTop = scrollHeight - clientHeight;
         }
       });
     }
@@ -89,7 +90,8 @@ export function ChatContainer({ roomId, className }: ChatContainerProps) {
     }
 
     // Check if we should auto-scroll (near bottom)
-    const isNearBottom = scrollHeight - (scrollTop + clientHeight) < 100;
+    const distanceFromBottom = scrollHeight - (scrollTop + clientHeight);
+    const isNearBottom = distanceFromBottom < 100;
     setShouldAutoScroll(isNearBottom);
   }, [hasMore, isLoadingMore, loadMore]);
 
@@ -109,7 +111,8 @@ export function ChatContainer({ roomId, className }: ChatContainerProps) {
   // Initial scroll to bottom
   useEffect(() => {
     if (scrollContainerRef.current && isInitialLoadRef.current && !isLoading) {
-      scrollContainerRef.current.scrollTop = scrollContainerRef.current.scrollHeight;
+      const { scrollHeight, clientHeight } = scrollContainerRef.current;
+      scrollContainerRef.current.scrollTop = scrollHeight - clientHeight;
       isInitialLoadRef.current = false;
     }
   }, [isLoading]);
@@ -117,7 +120,8 @@ export function ChatContainer({ roomId, className }: ChatContainerProps) {
   // Reset scroll and loading state when room changes
   useEffect(() => {
     if (scrollContainerRef.current) {
-      scrollContainerRef.current.scrollTop = scrollContainerRef.current.scrollHeight;
+      const { scrollHeight, clientHeight } = scrollContainerRef.current;
+      scrollContainerRef.current.scrollTop = scrollHeight - clientHeight;
       setShouldAutoScroll(true);
       setIsLoadingMore(false);
       isInitialLoadRef.current = true;

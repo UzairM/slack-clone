@@ -9,6 +9,7 @@ export type {
   IRequestTokenResponse,
   MatrixClient,
   Room,
+  RoomMember,
 } from 'matrix-js-sdk';
 
 // Re-export values

@@ -1,10 +1,3 @@
-import { Document } from '@langchain/core/documents';
-import { StringOutputParser } from '@langchain/core/output_parsers';
-import { PromptTemplate } from '@langchain/core/prompts';
-import { RunnableSequence } from '@langchain/core/runnables';
-import { ConsoleCallbackHandler } from '@langchain/core/tracers/console';
-import { ChatOpenAI, OpenAIEmbeddings } from '@langchain/openai';
-import { Pinecone } from '@pinecone-database/pinecone';
 import {
   createClient,
   EventType,
@@ -14,7 +7,14 @@ import {
   RoomEvent,
   RoomMember,
   RoomMemberEvent,
-} from 'matrix-js-sdk';
+} from '@/lib/matrix/sdk';
+import { Document } from '@langchain/core/documents';
+import { StringOutputParser } from '@langchain/core/output_parsers';
+import { PromptTemplate } from '@langchain/core/prompts';
+import { RunnableSequence } from '@langchain/core/runnables';
+import { ConsoleCallbackHandler } from '@langchain/core/tracers/console';
+import { ChatOpenAI, OpenAIEmbeddings } from '@langchain/openai';
+import { Pinecone } from '@pinecone-database/pinecone';
 import OpenAI from 'openai';
 
 interface PineconeMetadata {
