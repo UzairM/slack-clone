@@ -95,6 +95,24 @@ interface MessageProps {
   isInThreadView?: boolean;
 }
 
+// Add this function to format message content with mentions
+const formatMessageWithMentions = (text: string) => {
+  // Split on @mentions
+  const parts = text.split(/(@[\w]+)/g);
+
+  return parts.map((part, index) => {
+    // If this part starts with @, it's a mention
+    if (part.startsWith('@')) {
+      return (
+        <strong key={index} className="text-primary">
+          {part}
+        </strong>
+      );
+    }
+    return part;
+  });
+};
+
 export function Message({
   id,
   content,
@@ -132,44 +150,55 @@ export function Message({
   isHidden,
   isInThreadView,
 }: MessageProps) {
-  const { client } = useMatrix();
-  const [editContent, setEditContent] = useState(content);
+  const [editedContent, setEditedContent] = useState(content);
+  const [showEditHistory, setShowEditHistory] = useState(false);
+  const [showReactionPicker, setShowReactionPicker] = useState(false);
+  const [avatarUrl, setAvatarUrl] = useState<string>();
+  const [displayName, setDisplayName] = useState<string>();
   const [isDeleting, setIsDeleting] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
-  const [showEditHistory, setShowEditHistory] = useState(false);
-  const [avatarUrl, setAvatarUrl] = useState<string | null>(
-    `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(sender)}`
-  );
-  const [displayName, setDisplayName] = useState<string>(sender.slice(1).split(':')[0]);
+  const { client } = useMatrix();
+  const currentUserId = client?.getUserId();
 
-  // Get user avatar and display name
-  useEffect(() => {
-    if (!client) return;
+  // Format message content to highlight mentions
+  const formatMessageContent = (text: string) => {
+    if (!currentUserId) return text;
 
-    const user = client.getUser(sender);
-    if (user && user.avatarUrl) {
-      setAvatarUrl(user.avatarUrl);
-      // Only update display name if user has set a custom one
-      const customName = user.displayName;
-      if (customName && customName !== sender) {
-        setDisplayName(customName);
+    const username = currentUserId.split(':')[0];
+    const parts = text.split(new RegExp(`(@${username})`, 'g'));
+
+    return parts.map((part, index) => {
+      if (part === `@${username}`) {
+        return (
+          <span key={index} className="bg-primary/10 text-primary font-medium rounded px-1">
+            {part}
+          </span>
+        );
       }
-    } else {
-      // Use Dicebear as fallback
-      setAvatarUrl(`https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(sender)}`);
-    }
-  }, [client, sender]);
+      return part;
+    });
+  };
 
-  // Handle edit submit
-  const handleEditSubmit = async () => {
-    if (!onEdit || editContent.trim() === content) {
+  // Handle edit key press
+  const handleEditKeyPress = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      handleSaveEdit();
+    } else if (e.key === 'Escape') {
+      onCancelEdit?.();
+    }
+  };
+
+  // Handle save edit
+  const handleSaveEdit = async () => {
+    if (!onEdit || editedContent.trim() === content) {
       onCancelEdit?.();
       return;
     }
 
     try {
       setIsSaving(true);
-      await onEdit(id, editContent.trim());
+      await onEdit(id, editedContent.trim());
       onCancelEdit?.();
     } catch (error) {
       toast.error('Failed to edit message');
@@ -178,14 +207,13 @@ export function Message({
     }
   };
 
-  // Handle delete with confirmation
+  // Handle delete
   const handleDelete = async () => {
     if (!onDelete) return;
 
     try {
       setIsDeleting(true);
       await onDelete(id);
-      // No need to manually hide the message as it will be removed from the messages list
     } catch (error) {
       toast.error('Failed to delete message');
     } finally {
@@ -193,58 +221,30 @@ export function Message({
     }
   };
 
-  // Handle key press in edit mode
-  const handleKeyPress = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault();
-      handleEditSubmit();
-    } else if (e.key === 'Escape') {
-      onCancelEdit?.();
-    }
-  };
+  // Format timestamp
+  const timeString = format(new Date(timestamp), 'h:mm a');
 
   const renderContent = () => {
     if (isEditing) {
       return (
         <div className="space-y-2">
           <Textarea
-            value={editContent}
-            onChange={e => setEditContent(e.target.value)}
-            onKeyDown={handleKeyPress}
-            className="min-h-[60px] w-full resize-none"
+            value={editedContent}
+            onChange={e => setEditedContent(e.target.value)}
+            onKeyDown={handleEditKeyPress}
+            className="min-h-[100px]"
             placeholder="Edit your message..."
-            disabled={isSaving}
           />
-          <div className="flex gap-2">
-            <Button size="sm" onClick={handleEditSubmit} disabled={isSaving}>
-              {isSaving ? (
-                <>
-                  <Loader2 className="mr-2 h-3 w-3 animate-spin" />
-                  Saving...
-                </>
-              ) : (
-                'Save'
-              )}
-            </Button>
-            <Button size="sm" variant="ghost" onClick={onCancelEdit} disabled={isSaving}>
+          <div className="flex items-center justify-end gap-2">
+            <Button variant="ghost" size="sm" onClick={onCancelEdit}>
               Cancel
+            </Button>
+            <Button size="sm" onClick={handleSaveEdit}>
+              Save
             </Button>
           </div>
         </div>
       );
-    }
-
-    const messageDate = new Date(timestamp);
-    const isToday = new Date().toDateString() === messageDate.toDateString();
-    const isThisYear = new Date().getFullYear() === messageDate.getFullYear();
-
-    let timeString;
-    if (isToday) {
-      timeString = format(messageDate, 'h:mm a');
-    } else if (isThisYear) {
-      timeString = format(messageDate, 'MMM d, h:mm a');
-    } else {
-      timeString = format(messageDate, 'MMM d, yyyy h:mm a');
     }
 
     return (
@@ -253,7 +253,11 @@ export function Message({
           {(() => {
             switch (type) {
               case 'm.text':
-                return <p className="whitespace-pre-wrap text-sm">{content}</p>;
+                return (
+                  <p className="whitespace-pre-wrap text-sm">
+                    {formatMessageWithMentions(content)}
+                  </p>
+                );
               case 'm.emote':
                 return <EmoteMessage content={content} sender={sender} />;
               case 'm.image':
@@ -283,7 +287,11 @@ export function Message({
                   />
                 ) : null;
               default:
-                return <p className="whitespace-pre-wrap text-sm">{content}</p>;
+                return (
+                  <p className="whitespace-pre-wrap text-sm">
+                    {formatMessageWithMentions(content)}
+                  </p>
+                );
             }
           })()}
           <div className="mt-1 flex items-center justify-end">
@@ -309,6 +317,24 @@ export function Message({
       </div>
     );
   };
+
+  // Get user avatar and display name
+  useEffect(() => {
+    if (!client) return;
+
+    const user = client.getUser(sender);
+    if (user && user.avatarUrl) {
+      setAvatarUrl(user.avatarUrl);
+      // Only update display name if user has set a custom one
+      const customName = user.displayName;
+      if (customName && customName !== sender) {
+        setDisplayName(customName);
+      }
+    } else {
+      // Use Dicebear as fallback
+      setAvatarUrl(`https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(sender)}`);
+    }
+  }, [client, sender]);
 
   return (
     <div

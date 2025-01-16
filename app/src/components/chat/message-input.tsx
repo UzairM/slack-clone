@@ -6,14 +6,18 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { Progress } from '@/components/ui/progress';
 import { Textarea } from '@/components/ui/textarea';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
+import { useMatrix } from '@/hooks/use-matrix';
+import { useAuthStore } from '@/lib/store/auth-store';
 import { cn } from '@/lib/utils';
-import { Code, Link, MapPin, Mic, Paperclip, SendHorizontal, Smile, X } from 'lucide-react';
+import { Code, Link, MapPin, Paperclip, SendHorizontal, Smile, X } from 'lucide-react';
 import { ISendEventResponse } from 'matrix-js-sdk';
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { FileUploadMessage } from './file-upload-message';
+import { UserMentionList } from './user-mention-list';
 
 interface MessageInputProps {
+  roomId: string;
   onSend: (content: string) => Promise<ISendEventResponse | void>;
   onUpload: (file: File) => Promise<ISendEventResponse>;
   onTyping: () => void;
@@ -31,15 +35,153 @@ interface PendingUpload {
   };
 }
 
-export function MessageInput({ onSend, onUpload, onTyping, className }: MessageInputProps) {
+interface UserInfo {
+  userId: string;
+  displayName?: string;
+  avatarUrl?: string;
+}
+
+export function MessageInput({ roomId, onSend, onUpload, onTyping, className }: MessageInputProps) {
   const [content, setContent] = useState('');
   const [isSending, setIsSending] = useState(false);
-  const [isRecording, setIsRecording] = useState(false);
-  const [uploadProgress, setUploadProgress] = useState<{ [key: string]: number }>({});
   const [pendingUpload, setPendingUpload] = useState<PendingUpload | null>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [uploadProgress, setUploadProgress] = useState(0);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const { client } = useMatrix();
+  const { userId } = useAuthStore();
 
+  // Mention state
+  const [mentionQuery, setMentionQuery] = useState('');
+  const [mentionAnchorPos, setMentionAnchorPos] = useState<{ top: number; left: number } | null>(
+    null
+  );
+  const [selectedUserIndex, setSelectedUserIndex] = useState(0);
+  const [filteredUsers, setFilteredUsers] = useState<UserInfo[]>([]);
+  const [roomMembers, setRoomMembers] = useState<UserInfo[]>([]);
+
+  // Load room members
+  useEffect(() => {
+    if (!client || !userId) return;
+
+    const loadMembers = async () => {
+      try {
+        const room = client.getRoom(roomId);
+        if (!room) return;
+
+        const members = room.getJoinedMembers();
+        const memberInfo = members
+          .filter(member => member.userId !== userId)
+          .map(member => {
+            const avatarUrl = member.getAvatarUrl?.(client.baseUrl, 32, 32, 'crop', true, false);
+            return {
+              userId: member.userId,
+              displayName: member.name,
+              avatarUrl: avatarUrl
+                ? client.mxcUrlToHttp(avatarUrl, 32, 32, 'crop', true, false) || undefined
+                : undefined,
+            } satisfies UserInfo;
+          });
+
+        setRoomMembers(memberInfo);
+      } catch (error) {
+        console.error('Failed to load room members:', error);
+      }
+    };
+
+    loadMembers();
+  }, [client, roomId, userId]);
+
+  // Handle mention query
+  const handleMentionQuery = useCallback(
+    (text: string, cursorPosition: number) => {
+      const textBeforeCursor = text.slice(0, cursorPosition);
+      const mentionMatch = textBeforeCursor.match(/@(\w*)$/);
+
+      if (mentionMatch) {
+        const query = mentionMatch[1].toLowerCase();
+        setMentionQuery(query);
+
+        // Filter users based on query
+        const filtered = roomMembers.filter(user => {
+          const displayName = user.displayName || user.userId.split(':')[0].substring(1);
+          return displayName.toLowerCase().includes(query);
+        });
+
+        setFilteredUsers(filtered.length > 0 ? filtered : roomMembers);
+        setSelectedUserIndex(0);
+
+        // Calculate mention list position
+        if (textareaRef.current) {
+          const { top, left } = textareaRef.current.getBoundingClientRect();
+          const lineHeight = parseInt(window.getComputedStyle(textareaRef.current).lineHeight);
+          const textBeforeMention = textBeforeCursor.slice(0, mentionMatch.index);
+
+          // Create a mirror div to measure text width accurately
+          const mirror = document.createElement('div');
+          mirror.style.position = 'absolute';
+          mirror.style.visibility = 'hidden';
+          mirror.style.whiteSpace = 'pre-wrap';
+          mirror.style.wordWrap = 'break-word';
+          mirror.style.width = `${textareaRef.current.clientWidth}px`;
+          mirror.style.font = window.getComputedStyle(textareaRef.current).font;
+          mirror.textContent = textBeforeMention;
+          document.body.appendChild(mirror);
+
+          // Calculate cursor position
+          const lines = Math.floor(mirror.clientHeight / lineHeight);
+          const cursorTop = lines * lineHeight;
+          document.body.removeChild(mirror);
+
+          setMentionAnchorPos({
+            top: top - 250, // Position above the textarea
+            left: left + 10, // Slight indent from the left
+          });
+        }
+      } else {
+        setMentionQuery('');
+        setMentionAnchorPos(null);
+        setFilteredUsers([]);
+      }
+    },
+    [roomMembers]
+  );
+
+  // Handle key navigation for mentions
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (mentionAnchorPos) {
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        setSelectedUserIndex(prev => (prev + 1) % filteredUsers.length);
+      } else if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        setSelectedUserIndex(prev => (prev - 1 + filteredUsers.length) % filteredUsers.length);
+      } else if (e.key === 'Enter' && !e.shiftKey && filteredUsers.length > 0) {
+        e.preventDefault();
+        handleUserSelect(filteredUsers[selectedUserIndex]);
+      } else if (e.key === 'Escape') {
+        setMentionAnchorPos(null);
+        setFilteredUsers([]);
+      }
+    } else if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      handleSubmit();
+    }
+  };
+
+  // Handle user selection from mention list
+  const handleUserSelect = (user: UserInfo) => {
+    const displayName = user.displayName || user.userId.split(':')[0].substring(1);
+    const beforeMention = content.slice(0, content.lastIndexOf('@'));
+    const afterMention = content.slice(content.lastIndexOf('@') + mentionQuery.length + 1);
+    const newContent = `${beforeMention}@${displayName} ${afterMention}`;
+    setContent(newContent);
+    setMentionAnchorPos(null);
+    setFilteredUsers([]);
+    textareaRef.current?.focus();
+  };
+
+  // Handle message send
   const handleSubmit = async () => {
     const trimmedContent = content.trim();
     if ((!trimmedContent && !pendingUpload) || isSending) return;
@@ -73,36 +215,7 @@ export function MessageInput({ onSend, onUpload, onTyping, className }: MessageI
     }
   };
 
-  const handleKeyPress = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault();
-      handleSubmit();
-    }
-  };
-
-  const handleChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
-    setContent(e.target.value);
-    onTyping();
-
-    // Auto-resize the textarea
-    const textarea = e.target;
-    textarea.style.height = 'inherit';
-    textarea.style.height = `${Math.min(textarea.scrollHeight, 200)}px`;
-  };
-
-  // Reset height when content is cleared
-  useEffect(() => {
-    if (!content && textareaRef.current) {
-      textareaRef.current.style.height = '40px';
-    }
-  }, [content]);
-
-  const handleEmojiSelect = (emoji: string) => {
-    setContent(prev => prev + emoji);
-    onTyping();
-  };
-
-  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     try {
       if (!e.target || !e.target.files || e.target.files.length === 0) {
         console.log('No files selected');
@@ -208,7 +321,6 @@ export function MessageInput({ onSend, onUpload, onTyping, className }: MessageI
 
   const handleRecordAudio = () => {
     // TODO: Implement audio recording
-    setIsRecording(!isRecording);
     toast.info('Audio recording coming soon!');
   };
 
@@ -217,65 +329,68 @@ export function MessageInput({ onSend, onUpload, onTyping, className }: MessageI
     toast.info('Location sharing coming soon!');
   };
 
-  return (
-    <div className={cn('flex flex-col gap-2 p-4 bg-background border-t', className)}>
-      {/* Upload progress */}
-      {Object.entries(uploadProgress).map(([fileName, progress]) => (
-        <div key={fileName} className="flex items-center gap-2 text-sm">
-          <span className="truncate flex-1">{fileName}</span>
-          <Progress value={progress} className="w-24" />
-          <span className="text-muted-foreground">{progress}%</span>
-        </div>
-      ))}
+  // Handle emoji select
+  const handleEmojiSelect = (emoji: string) => {
+    setContent(prev => prev + emoji);
+    onTyping();
+  };
 
-      {/* File preview */}
-      {pendingUpload && (
-        <div className="relative rounded-lg border bg-card p-4">
-          <Button
-            variant="ghost"
-            size="icon"
-            className="absolute right-2 top-2 h-6 w-6"
-            onClick={handleCancelUpload}
-          >
-            <X className="h-4 w-4" />
-          </Button>
-          <div className="space-y-4">
-            <FileUploadMessage
-              content={pendingUpload.file.name}
-              type={
-                pendingUpload.file.type.startsWith('image/')
-                  ? 'm.image'
-                  : pendingUpload.file.type.startsWith('video/')
-                    ? 'm.video'
-                    : pendingUpload.file.type.startsWith('audio/')
-                      ? 'm.audio'
-                      : 'm.file'
-              }
-              fileName={pendingUpload.file.name}
-              fileSize={pendingUpload.file.size}
-              mediaUrl={pendingUpload.previewUrl}
-              mimeType={pendingUpload.file.type}
-              isUploading={false}
-              width={pendingUpload.metadata?.width}
-              height={pendingUpload.metadata?.height}
-              duration={pendingUpload.metadata?.duration}
-              isPreview={true}
-            />
-          </div>
+  // Handle content change
+  const handleChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    const newContent = e.target.value;
+    const cursorPosition = e.target.selectionStart;
+    setContent(newContent);
+    handleMentionQuery(newContent, cursorPosition);
+    onTyping();
+  };
+
+  return (
+    <div className={cn('space-y-4 p-4', className)}>
+      {/* Mention suggestions */}
+      {mentionAnchorPos && filteredUsers.length > 0 && (
+        <div className="absolute bottom-[100%] left-4 z-50 mb-2">
+          <UserMentionList
+            users={filteredUsers}
+            selectedIndex={selectedUserIndex}
+            onSelect={handleUserSelect}
+            className="w-[250px]"
+          />
         </div>
       )}
 
-      {/* Format buttons */}
-      <div className="flex items-center gap-1">
-        <input
-          type="file"
-          ref={fileInputRef}
-          className="hidden"
-          onChange={handleFileUpload}
-          accept="*/*"
-        />
+      {/* File upload preview */}
+      {pendingUpload && (
+        <div className="relative rounded-lg border bg-muted/50 p-4">
+          <Button
+            variant="ghost"
+            size="icon"
+            className="absolute right-2 top-2 h-6 w-6 rounded-full"
+            onClick={() => setPendingUpload(null)}
+          >
+            <X className="h-4 w-4" />
+          </Button>
+          <FileUploadMessage
+            content={pendingUpload.message}
+            type="m.file"
+            fileName={pendingUpload.file.name}
+            fileSize={pendingUpload.file.size}
+            isUploading={true}
+          />
+          <Progress value={uploadProgress} className="mt-2" />
+        </div>
+      )}
 
+      {/* Input toolbar */}
+      <div className="flex items-center gap-1">
         <TooltipProvider>
+          <input
+            ref={fileInputRef}
+            type="file"
+            className="hidden"
+            onChange={handleFileSelect}
+            multiple={false}
+          />
+
           <Tooltip>
             <TooltipTrigger asChild>
               <Button
@@ -292,21 +407,7 @@ export function MessageInput({ onSend, onUpload, onTyping, className }: MessageI
 
           <Tooltip>
             <TooltipTrigger asChild>
-              <Button
-                variant="ghost"
-                size="icon"
-                className={cn('h-8 w-8', isRecording && 'text-destructive')}
-                onClick={handleRecordAudio}
-              >
-                <Mic className="h-4 w-4" />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent>{isRecording ? 'Stop recording' : 'Record audio'}</TooltipContent>
-          </Tooltip>
-
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button variant="ghost" size="icon" className="h-8 w-8" onClick={handleAddLocation}>
+              <Button variant="ghost" size="icon" className="h-8 w-8">
                 <MapPin className="h-4 w-4" />
               </Button>
             </TooltipTrigger>
@@ -349,12 +450,12 @@ export function MessageInput({ onSend, onUpload, onTyping, className }: MessageI
       </div>
 
       {/* Message input */}
-      <div className="flex items-end gap-2">
+      <div className="relative flex items-end gap-2">
         <Textarea
           ref={textareaRef}
           value={content}
           onChange={handleChange}
-          onKeyDown={handleKeyPress}
+          onKeyDown={handleKeyDown}
           placeholder={pendingUpload ? 'Add a message...' : 'Type a message...'}
           className="min-h-[40px] max-h-[200px] resize-none overflow-y-auto py-2"
           rows={1}

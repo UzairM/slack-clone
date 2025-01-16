@@ -250,7 +250,12 @@ export function ChatContainer({ roomId, className }: ChatContainerProps) {
 
         {/* Message input and typing indicator */}
         <div className="absolute bottom-0 left-0 right-0 border-t bg-background">
-          <MessageInput onSend={sendMessage} onUpload={uploadFile} onTyping={handleUserTyping} />
+          <MessageInput
+            roomId={roomId}
+            onSend={sendMessage}
+            onUpload={uploadFile}
+            onTyping={handleUserTyping}
+          />
           {typingUsers.length > 0 && <TypingIndicator users={typingUsers} />}
         </div>
       </div>
