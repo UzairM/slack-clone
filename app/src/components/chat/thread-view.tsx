@@ -179,7 +179,12 @@ export function ThreadView({ roomId, threadId, onClose, className }: ThreadViewP
 
       {/* Thread input */}
       <div className="border-t p-4">
-        <MessageInput onSend={handleSend} onUpload={handleUpload} onTyping={handleUserTyping} />
+        <MessageInput
+          roomId={roomId}
+          onSend={handleSend}
+          onUpload={handleUpload}
+          onTyping={handleUserTyping}
+        />
       </div>
     </div>
   );
