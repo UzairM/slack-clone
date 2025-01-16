@@ -256,10 +256,22 @@ export class MatrixBot {
         if (!event.getContent()?.body) return;
 
         const messageContent = event.getContent().body;
+        const formattedContent = event.getContent().formatted_body;
+
+        // Check if the bot is mentioned in the message
+        const isMentioned =
+          messageContent.includes(`@${this.username}`) ||
+          (formattedContent && formattedContent.includes(`@${this.username}`));
+
+        // Only respond if the bot is mentioned
+        if (!isMentioned) return;
+
+        // Remove the mention from the message before processing
+        const cleanMessage = messageContent.replace(`@${this.username}`, '').trim();
 
         try {
           // Get contextual AI response
-          const response = await this.getContextualResponse(messageContent);
+          const response = await this.getContextualResponse(cleanMessage);
 
           // Send response back to the room
           await this.client!.sendMessage(room.roomId, {
