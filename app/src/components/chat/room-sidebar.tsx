@@ -8,7 +8,7 @@ import { useMatrix } from '@/hooks/use-matrix';
 import { useMatrixRooms } from '@/hooks/use-matrix-rooms';
 import { cn } from '@/lib/utils';
 import { Loader2, Lock, MessageSquare, Plus, Search, Settings, Users } from 'lucide-react';
-import { NotificationCountType, RoomEvent } from 'matrix-js-sdk';
+import { ClientEvent, NotificationCountType, RoomEvent } from 'matrix-js-sdk';
 import { useParams, useRouter } from 'next/navigation';
 import { useCallback, useEffect, useState } from 'react';
 import { toast } from 'sonner';
@@ -36,6 +36,11 @@ interface UserInfo {
   userId: string;
   displayName?: string;
   avatarUrl?: string;
+  presence?: {
+    status: 'online' | 'offline' | 'unavailable';
+    lastActiveAgo?: number;
+    statusMsg?: string;
+  };
 }
 
 export function RoomSidebar({ className }: RoomSidebarProps) {
@@ -51,7 +56,45 @@ export function RoomSidebar({ className }: RoomSidebarProps) {
 
   const { publicRooms, privateRooms, directMessages, myRooms } = getRoomCategories();
 
-  // Load all users from the server
+  const getUserPresenceColor = (presence?: UserInfo['presence']) => {
+    if (!presence) return 'bg-gray-400';
+    switch (presence.status) {
+      case 'online':
+        return 'bg-green-500';
+      case 'unavailable':
+        return 'bg-yellow-500';
+      case 'offline':
+      default:
+        return 'bg-gray-400';
+    }
+  };
+
+  const handlePresenceUpdate = useCallback(async () => {
+    if (!client) return;
+
+    // Update presence for all users
+    const updatedUsers = await Promise.all(
+      users.map(async user => {
+        try {
+          const presence = await client.getPresence(user.userId);
+          return {
+            ...user,
+            presence: {
+              status: presence.presence as 'online' | 'offline' | 'unavailable',
+              lastActiveAgo: presence.last_active_ago,
+              statusMsg: presence.status_msg,
+            },
+          };
+        } catch (error) {
+          return user;
+        }
+      })
+    );
+
+    setUsers(updatedUsers);
+    setFilteredUsers(updatedUsers);
+  }, [client, users]);
+
   const loadAllUsers = useCallback(async () => {
     if (!client) return;
 
@@ -62,14 +105,33 @@ export function RoomSidebar({ className }: RoomSidebarProps) {
       // Search with empty string to get all users
       const searchResults = await client.searchUserDirectory({
         term: '' + serverName,
-        limit: 100, // Adjust this number based on your needs
+        limit: 100,
       });
 
-      const userResults = searchResults.results.map(user => ({
-        userId: user.user_id,
-        displayName: user.display_name,
-        avatarUrl: (user.avatar_url && client.mxcUrlToHttp(user.avatar_url)) || undefined,
-      }));
+      const userResults = await Promise.all(
+        searchResults.results.map(async user => {
+          // Get presence for each user
+          let presence;
+          try {
+            presence = await client.getPresence(user.user_id);
+          } catch (error) {
+            console.warn('Failed to get presence for user:', user.user_id);
+          }
+
+          return {
+            userId: user.user_id,
+            displayName: user.display_name,
+            avatarUrl: (user.avatar_url && client.mxcUrlToHttp(user.avatar_url)) || undefined,
+            presence: presence
+              ? {
+                  status: presence.presence as 'online' | 'offline' | 'unavailable',
+                  lastActiveAgo: presence.last_active_ago,
+                  statusMsg: presence.status_msg,
+                }
+              : undefined,
+          };
+        })
+      );
 
       setUsers(userResults);
       setFilteredUsers(userResults);
@@ -80,6 +142,16 @@ export function RoomSidebar({ className }: RoomSidebarProps) {
       setIsSearchingUsers(false);
     }
   }, [client]);
+
+  useEffect(() => {
+    if (!client) return;
+
+    client.on(ClientEvent.Sync, handlePresenceUpdate);
+
+    return () => {
+      client.removeListener(ClientEvent.Sync, handlePresenceUpdate);
+    };
+  }, [client, handlePresenceUpdate]);
 
   // Load users on component mount
   useEffect(() => {
@@ -377,18 +449,26 @@ export function RoomSidebar({ className }: RoomSidebarProps) {
                       onClick={() => handleStartDM(user.userId)}
                       className="group relative flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm transition-all hover:bg-[#AACFF3]/40 dark:hover:bg-muted/50"
                     >
-                      <Avatar className="h-9 w-9 shrink-0">
-                        <AvatarImage src={user.avatarUrl} alt={user.displayName || user.userId} />
-                        <AvatarFallback>
-                          {(user.displayName || user.userId.charAt(1)).toUpperCase()}
-                        </AvatarFallback>
-                      </Avatar>
+                      <div className="relative">
+                        <Avatar className="h-9 w-9 shrink-0">
+                          <AvatarImage src={user.avatarUrl} alt={user.displayName || user.userId} />
+                          <AvatarFallback>
+                            {(user.displayName || user.userId.charAt(1)).toUpperCase()}
+                          </AvatarFallback>
+                        </Avatar>
+                        <span
+                          className={cn(
+                            'absolute bottom-0 right-0 h-3 w-3 rounded-full border-2 border-background',
+                            getUserPresenceColor(user.presence)
+                          )}
+                        />
+                      </div>
                       <div className="flex min-w-0 flex-1 flex-col items-start">
                         <span className="truncate font-medium">
                           {user.displayName || user.userId.split(':')[0].substring(1)}
                         </span>
                         <span className="truncate text-xs text-muted-foreground">
-                          {user.userId}
+                          {user.presence?.statusMsg || user.userId}
                         </span>
                       </div>
                     </button>
