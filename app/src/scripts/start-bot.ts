@@ -10,14 +10,14 @@ async function main() {
 
   // Check required environment variables
   const requiredEnvVars = [
-    'MATRIX_HOMESERVER_URL',
-    'MATRIX_SERVER_NAME',
-    'MATRIX_USERNAME',
-    'MATRIX_PASSWORD',
-    'OPENAI_API_KEY',
-    'PINECONE_API_KEY',
-    'PINECONE_ENVIRONMENT',
-    'PINECONE_INDEX',
+    'NEXT_PUBLIC_MATRIX_HOMESERVER_URL',
+    'NEXT_PUBLIC_MATRIX_SERVER_NAME',
+    'NEXT_PUBLIC_MATRIX_USERNAME',
+    'NEXT_PUBLIC_MATRIX_PASSWORD',
+    'NEXT_PUBLIC_OPENAI_API_KEY',
+    'NEXT_PUBLIC_PINECONE_API_KEY',
+    'NEXT_PUBLIC_PINECONE_ENVIRONMENT',
+    'NEXT_PUBLIC_PINECONE_INDEX',
   ];
 
   for (const envVar of requiredEnvVars) {
@@ -29,16 +29,16 @@ async function main() {
 
   // Create and start the bot
   const bot = new MatrixBot(
-    process.env.MATRIX_HOMESERVER_URL!,
-    process.env.MATRIX_USERNAME!,
-    process.env.MATRIX_PASSWORD!,
-    process.env.OPENAI_API_KEY!,
-    process.env.OPENAI_MODEL || 'gpt-4-turbo-preview' // Use default if not specified
+    process.env.NEXT_PUBLIC_MATRIX_HOMESERVER_URL!,
+    process.env.NEXT_PUBLIC_MATRIX_USERNAME!,
+    process.env.NEXT_PUBLIC_MATRIX_PASSWORD!,
+    process.env.NEXT_PUBLIC_OPENAI_API_KEY!,
+    process.env.NEXT_PUBLIC_OPENAI_MODEL || 'gpt-4-turbo-preview' // Use default if not specified
   );
 
   try {
     console.log(
-      `Starting bot with OpenAI model: ${process.env.OPENAI_MODEL || 'gpt-4-turbo-preview'}`
+      `Starting bot with OpenAI model: ${process.env.NEXT_PUBLIC_OPENAI_MODEL || 'gpt-4-turbo-preview'}`
     );
     await bot.start();
     console.log('Bot is running and auto-joining public rooms...');

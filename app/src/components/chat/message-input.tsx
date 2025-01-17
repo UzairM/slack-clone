@@ -7,6 +7,7 @@ import { Progress } from '@/components/ui/progress';
 import { Textarea } from '@/components/ui/textarea';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { useMatrix } from '@/hooks/use-matrix';
+import { messageIngestion } from '@/lib/ai/message-ingestion';
 import { useAuthStore } from '@/lib/store/auth-store';
 import { cn } from '@/lib/utils';
 import { Code, Link, MapPin, Paperclip, SendHorizontal, Smile, X } from 'lucide-react';
@@ -183,35 +184,53 @@ export function MessageInput({ roomId, onSend, onUpload, onTyping, className }: 
 
   // Handle message send
   const handleSubmit = async () => {
-    const trimmedContent = content.trim();
-    if ((!trimmedContent && !pendingUpload) || isSending) return;
+    if (!content.trim() && !pendingUpload) return;
 
     try {
       setIsSending(true);
 
+      let response: ISendEventResponse | void;
       if (pendingUpload) {
-        // Upload file first
-        const result = await onUpload(pendingUpload.file);
-        // If there's a message, send it after the file
-        if (trimmedContent) {
-          await onSend(trimmedContent);
-        }
-        // Clear the pending upload
+        response = await onUpload(pendingUpload.file);
         setPendingUpload(null);
       } else {
-        // Just send the message
-        await onSend(trimmedContent);
+        response = await onSend(content);
+      }
+
+      // If message was sent successfully, ingest it to Pinecone
+      if (response && userId) {
+        try {
+          await messageIngestion.ingestMessage({
+            messageId: response.event_id,
+            roomId,
+            senderId: userId,
+            timestamp: Date.now(),
+            content: content.trim(),
+            type: 'm.text',
+            threadId: undefined, // Add thread ID if available in your context
+            replyTo: undefined, // Add reply info if available in your context
+          });
+        } catch (error) {
+          console.error('Failed to ingest message:', error);
+          // Don't show error to user as message was sent successfully
+        }
       }
 
       setContent('');
-      setTimeout(() => {
-        textareaRef.current?.focus();
-      }, 0);
+      setSelectedUserIndex(0);
+      setMentionQuery('');
+      setMentionAnchorPos(null);
+
+      // Focus the textarea after sending
+      if (textareaRef.current) {
+        textareaRef.current.focus();
+      }
     } catch (error) {
       console.error('Failed to send message:', error);
       toast.error('Failed to send message');
     } finally {
       setIsSending(false);
+      setUploadProgress(0);
     }
   };
 

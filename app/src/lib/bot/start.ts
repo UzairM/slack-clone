@@ -1,34 +1,45 @@
 import dotenv from 'dotenv';
 import path from 'path';
-import { MatrixBot } from './matrix-bot';
 
 // Load environment variables from .env.bot file
 const envPath = path.resolve(process.cwd(), '.env.bot');
 console.log('Loading environment from:', envPath);
 dotenv.config({ path: envPath });
 
+// Now import other modules
+import { MatrixBot } from './matrix-bot';
+
 // Get environment variables
 const {
-  MATRIX_HOMESERVER_URL: homeserverUrl,
-  MATRIX_USERNAME: username,
-  MATRIX_PASSWORD: password,
-  OPENAI_API_KEY: openaiApiKey,
-  OPENAI_MODEL: openaiModel,
-  MATRIX_ROOM_POLLING_INTERVAL: pollingIntervalStr,
-  PINECONE_API_KEY,
-  PINECONE_ENVIRONMENT,
-  PINECONE_INDEX,
+  NEXT_PUBLIC_MATRIX_HOMESERVER_URL: homeserverUrl,
+  NEXT_PUBLIC_MATRIX_USERNAME: username,
+  NEXT_PUBLIC_MATRIX_PASSWORD: password,
+  NEXT_PUBLIC_OPENAI_API_KEY: openaiApiKey,
+  NEXT_PUBLIC_OPENAI_MODEL: openaiModel,
+  NEXT_PUBLIC_MATRIX_ROOM_POLLING_INTERVAL: pollingIntervalStr,
+  NEXT_PUBLIC_PINECONE_API_KEY,
+  NEXT_PUBLIC_PINECONE_ENVIRONMENT,
+  NEXT_PUBLIC_PINECONE_INDEX,
 } = process.env;
+
+// Log loaded environment variables (without sensitive values)
+console.log('Loaded environment variables:', {
+  NEXT_PUBLIC_MATRIX_HOMESERVER_URL: !!homeserverUrl,
+  NEXT_PUBLIC_MATRIX_USERNAME: !!username,
+  NEXT_PUBLIC_OPENAI_API_KEY: !!openaiApiKey,
+  NEXT_PUBLIC_PINECONE_API_KEY: !!NEXT_PUBLIC_PINECONE_API_KEY,
+  NEXT_PUBLIC_PINECONE_INDEX: NEXT_PUBLIC_PINECONE_INDEX,
+});
 
 // Validate required environment variables
 const requiredEnvVars = {
-  MATRIX_HOMESERVER_URL: homeserverUrl,
-  MATRIX_USERNAME: username,
-  MATRIX_PASSWORD: password,
-  OPENAI_API_KEY: openaiApiKey,
-  PINECONE_API_KEY: PINECONE_API_KEY,
-  PINECONE_ENVIRONMENT: PINECONE_ENVIRONMENT,
-  PINECONE_INDEX: PINECONE_INDEX,
+  NEXT_PUBLIC_MATRIX_HOMESERVER_URL: homeserverUrl,
+  NEXT_PUBLIC_MATRIX_USERNAME: username,
+  NEXT_PUBLIC_MATRIX_PASSWORD: password,
+  NEXT_PUBLIC_OPENAI_API_KEY: openaiApiKey,
+  NEXT_PUBLIC_PINECONE_API_KEY: NEXT_PUBLIC_PINECONE_API_KEY,
+  NEXT_PUBLIC_PINECONE_ENVIRONMENT: NEXT_PUBLIC_PINECONE_ENVIRONMENT,
+  NEXT_PUBLIC_PINECONE_INDEX: NEXT_PUBLIC_PINECONE_INDEX,
 };
 
 // Check for missing environment variables
@@ -49,8 +60,8 @@ console.log('Bot Configuration:', {
   username,
   model: openaiModel,
   pollingInterval,
-  pineconeEnvironment: PINECONE_ENVIRONMENT,
-  pineconeIndex: PINECONE_INDEX,
+  pineconeEnvironment: NEXT_PUBLIC_PINECONE_ENVIRONMENT,
+  pineconeIndex: NEXT_PUBLIC_PINECONE_INDEX,
 });
 
 // Create and start the bot

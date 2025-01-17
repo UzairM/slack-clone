@@ -16,6 +16,7 @@ import { ConsoleCallbackHandler } from '@langchain/core/tracers/console';
 import { ChatOpenAI, OpenAIEmbeddings } from '@langchain/openai';
 import { Pinecone } from '@pinecone-database/pinecone';
 import OpenAI from 'openai';
+import { messageIngestion } from '../ai/message-ingestion';
 
 interface PineconeMetadata {
   text: string;
@@ -39,13 +40,15 @@ export class MatrixBot {
   private isRunning: boolean = false;
   private readonly pollingInterval: number;
   private readonly callbacks = [new ConsoleCallbackHandler()];
+  private lastSyncTimestamp: number = 0;
+  private processedMessageIds: Set<string> = new Set();
 
   constructor(
     private readonly homeserverUrl: string,
     private readonly username: string,
     private readonly password: string,
     private readonly openaiApiKey: string,
-    private readonly openaiModel: string = 'gpt-3.5-turbo',
+    private readonly openaiModel: string = 'gpt-4-turbo-preview',
     pollingIntervalMs?: number
   ) {
     this.homeserverUrl = process.env.DOCKER
@@ -56,19 +59,24 @@ export class MatrixBot {
     });
     this.pollingInterval = pollingIntervalMs || 5000;
 
-    // Initialize chat model with consistent callbacks
+    // Configure LangSmith tracing
+    process.env.LANGCHAIN_TRACING_V2 = process.env.NEXT_PUBLIC_LANGCHAIN_TRACING_V2;
+    process.env.LANGCHAIN_API_KEY = process.env.NEXT_PUBLIC_LANGCHAIN_API_KEY;
+    process.env.LANGCHAIN_PROJECT = process.env.NEXT_PUBLIC_LANGCHAIN_PROJECT;
+
+    // Initialize chat model with consistent callbacks and tracing
     this.chatModel = new ChatOpenAI({
-      modelName: process.env.OPENAI_MODEL || this.openaiModel,
+      modelName: process.env.NEXT_PUBLIC_OPENAI_MODEL || this.openaiModel,
       temperature: 0.7,
       openAIApiKey: this.openaiApiKey,
       callbacks: this.callbacks,
       verbose: true,
     });
 
-    // Initialize embeddings with consistent callbacks
+    // Initialize embeddings with consistent callbacks and tracing
     this.embeddings = new OpenAIEmbeddings({
       openAIApiKey: this.openaiApiKey,
-      modelName: process.env.OPENAI_EMBEDDINGS_MODEL || 'text-embedding-3-large',
+      modelName: process.env.NEXT_PUBLIC_OPENAI_EMBEDDINGS_MODEL || 'text-embedding-3-large',
       dimensions: 3072,
       verbose: true,
     });
@@ -79,10 +87,10 @@ export class MatrixBot {
       console.log('Initializing Pinecone connection...');
 
       this.pineconeClient = new Pinecone({
-        apiKey: process.env.PINECONE_API_KEY!,
+        apiKey: process.env.NEXT_PUBLIC_PINECONE_API_KEY!,
       });
 
-      this.pineconeIndex = this.pineconeClient.Index(process.env.PINECONE_INDEX!);
+      this.pineconeIndex = this.pineconeClient.Index(process.env.NEXT_PUBLIC_PINECONE_INDEX!);
 
       console.log('Pinecone initialized successfully');
     } catch (error) {
@@ -201,12 +209,14 @@ export class MatrixBot {
     // Create a temporary client for login
     const tempClient = createClient({
       baseUrl: this.homeserverUrl,
+      device_id: this.username, // Add device ID during login
     });
 
     try {
       const response = await tempClient.login('m.login.password', {
         user: this.username,
         password: this.password,
+        device_id: this.username, // Include device ID in login request
       });
 
       return {
@@ -216,6 +226,154 @@ export class MatrixBot {
     } catch (error) {
       console.error('Login failed:', error);
       throw error;
+    }
+  }
+
+  private async checkMissedMessages() {
+    if (!this.client || !this.pineconeIndex) return;
+
+    try {
+      console.log('Checking for missed messages...');
+      const rooms = this.client.getRooms();
+
+      // Query Pinecone for the latest message timestamp
+      const latestMessageQuery = await this.pineconeIndex.query({
+        vector: await this.embeddings.embedQuery(''), // Dummy vector for metadata-only query
+        topK: 1,
+        filter: {
+          timestamp: { $exists: true },
+        },
+        includeMetadata: true,
+      });
+
+      const latestPineconeTimestamp = latestMessageQuery.matches[0]?.metadata?.timestamp || 0;
+      this.lastSyncTimestamp = Math.max(this.lastSyncTimestamp, latestPineconeTimestamp);
+
+      for (const room of rooms) {
+        try {
+          // Get only recent messages since last sync
+          const timeline = room.getLiveTimeline();
+          const events = timeline.getEvents();
+
+          // Filter for new message events only
+          const missedMessages = events.filter(event => {
+            const isMessage = event.getType() === EventType.RoomMessage;
+            const isAfterLastSync = event.getTs() > this.lastSyncTimestamp;
+            const notProcessed = !this.processedMessageIds.has(event.getId() || '');
+            return isMessage && isAfterLastSync && notProcessed;
+          });
+
+          if (missedMessages.length > 0) {
+            console.log(`Found ${missedMessages.length} missed messages in room ${room.name}`);
+
+            // Process missed messages
+            for (const event of missedMessages) {
+              const messageId = event.getId();
+              if (!messageId) continue;
+
+              try {
+                const relation = event.getRelation();
+                const replyToId = relation?.['m.in_reply_to']?.event_id;
+
+                await messageIngestion.ingestMessage({
+                  messageId,
+                  roomId: room.roomId,
+                  senderId: event.getSender() || '',
+                  timestamp: event.getTs(),
+                  content: event.getContent()?.body || '',
+                  type: event.getContent()?.msgtype || 'm.text',
+                  threadId: event.threadRootId,
+                  replyTo: replyToId
+                    ? {
+                        id: replyToId,
+                        content: room.findEventById(replyToId)?.getContent()?.body || '',
+                        sender: room.findEventById(replyToId)?.getSender() || '',
+                      }
+                    : undefined,
+                });
+
+                // Mark message as processed
+                this.processedMessageIds.add(messageId);
+              } catch (error) {
+                console.error(`Failed to ingest missed message ${messageId}:`, error);
+              }
+            }
+          }
+        } catch (error) {
+          console.error(`Error processing missed messages for room ${room.name}:`, error);
+          continue;
+        }
+      }
+
+      // Update last sync timestamp
+      this.lastSyncTimestamp = Date.now();
+      console.log('Missed message check complete');
+    } catch (error) {
+      console.error('Error checking missed messages:', error);
+    }
+  }
+
+  private formatTimestamp(timestamp: number | undefined): string {
+    if (!timestamp) return 'never';
+    const date = new Date(timestamp);
+    const now = new Date();
+    const diffMinutes = Math.floor((now.getTime() - date.getTime()) / (1000 * 60));
+
+    if (diffMinutes < 1) return 'just now';
+    if (diffMinutes < 60) return `${diffMinutes} minutes ago`;
+    if (diffMinutes < 1440) return `${Math.floor(diffMinutes / 60)} hours ago`;
+    return `${Math.floor(diffMinutes / 1440)} days ago`;
+  }
+
+  private async isBotOnlyInstance(): Promise<boolean> {
+    if (!this.client) return false;
+
+    try {
+      // Get all devices for the bot's account
+      const devices = await this.client.getDevices();
+      const currentDeviceId = this.username; // Use our known device ID
+
+      console.log('\nCurrent devices:');
+      devices.devices.forEach(device => {
+        const isCurrent = device.device_id === currentDeviceId;
+        console.log(
+          `- ${device.device_id}: ${device.display_name || 'unnamed'} (Last seen: ${this.formatTimestamp(device.last_seen_ts)})${isCurrent ? ' (Current)' : ''}`
+        );
+      });
+
+      console.log('\nCurrent device ID:', currentDeviceId);
+
+      // Filter for recently active devices (excluding our current device)
+      const recentlyActiveDevices = devices.devices.filter(device => {
+        // Skip our own device
+        if (device.device_id === currentDeviceId) {
+          console.log(`\nSkipping current device ${device.device_id}`);
+          return false;
+        }
+
+        const lastSeenTimestamp = device.last_seen_ts || 0;
+        const minutesSinceLastSeen = (Date.now() - lastSeenTimestamp) / (1000 * 60);
+        const isRecentlyActive = minutesSinceLastSeen < 1; // Less than 1 minute ago
+
+        console.log(`\nDevice ${device.device_id} status:`, {
+          name: device.display_name || 'unnamed',
+          isCurrent: device.device_id === currentDeviceId,
+          isRecentlyActive,
+          minutesSinceLastSeen: Math.round(minutesSinceLastSeen * 10) / 10,
+          lastSeen: this.formatTimestamp(device.last_seen_ts),
+        });
+
+        return isRecentlyActive;
+      });
+
+      const shouldRespond = recentlyActiveDevices.length === 0;
+      console.log('\nOther recently active devices:', recentlyActiveDevices.length);
+      console.log('Should respond:', shouldRespond, '(no other devices seen in last minute)');
+
+      return shouldRespond;
+    } catch (error) {
+      console.error('Error checking bot devices:', error);
+      return true; // Default to responding if we can't check devices
     }
   }
 
@@ -234,16 +392,35 @@ export class MatrixBot {
       const { access_token, user_id } = await this.login();
       console.log('Login successful');
 
-      // Create the client with the access token
+      // Create the client with the access token and a consistent device ID
       this.client = createClient({
         baseUrl: this.homeserverUrl,
         accessToken: access_token,
         userId: user_id,
+        device_id: this.username, // Consistent device ID
       });
+
+      // Set a recognizable display name for the device
+      try {
+        await this.client.setDisplayName(this.username);
+      } catch (error) {
+        console.error('Error setting device display name:', error);
+      }
 
       // Start the client
       await this.client.startClient({ initialSyncLimit: 10 });
       this.isRunning = true;
+
+      // Check for missed messages on startup
+      await this.checkMissedMessages();
+
+      // Set up periodic missed message check (every 5 minutes)
+      setInterval(
+        () => {
+          this.checkMissedMessages();
+        },
+        5 * 60 * 1000
+      );
 
       // Auto-join public rooms
       await this.joinPublicRooms();
@@ -256,22 +433,22 @@ export class MatrixBot {
         if (!event.getContent()?.body) return;
 
         const messageContent = event.getContent().body;
-        const formattedContent = event.getContent().formatted_body;
 
-        // Check if the bot is mentioned in the message
-        const isMentioned =
-          messageContent.includes(`@${this.username}`) ||
-          (formattedContent && formattedContent.includes(`@${this.username}`));
+        // Check if bot is the only active instance
+        const isOnlyInstance = await this.isBotOnlyInstance();
+        console.log('Is bot the only instance?', isOnlyInstance);
 
-        // Only respond if the bot is mentioned
-        if (!isMentioned) return;
+        // Only respond if the bot is the only active instance
+        if (!isOnlyInstance) {
+          console.log('Skipping message - other instances are active');
+          return;
+        }
 
-        // Remove the mention from the message before processing
-        const cleanMessage = messageContent.replace(`@${this.username}`, '').trim();
+        console.log('Processing message as sole active instance');
 
         try {
-          // Get contextual AI response
-          const response = await this.getContextualResponse(cleanMessage);
+          // Get contextual AI response with bot-only prefix
+          const response = `[Automated Response]\n${await this.getContextualResponse(messageContent.trim())}`;
 
           // Send response back to the room
           await this.client!.sendMessage(room.roomId, {
@@ -332,7 +509,7 @@ export class MatrixBot {
       try {
         // Get current list of public rooms
         const serverUrl = new URL(this.homeserverUrl);
-        const serverName = process.env.MATRIX_SERVER_NAME || 'localhost';
+        const serverName = process.env.NEXT_PUBLIC_MATRIX_SERVER_NAME || 'localhost';
         const response = await this.client.publicRooms({
           limit: 1000,
           server: serverName,
@@ -370,17 +547,28 @@ export class MatrixBot {
     }, this.pollingInterval);
   }
 
+  public async joinRoom(roomId: string) {
+    if (!this.client) return;
+
+    try {
+      await this.client.joinRoom(roomId);
+      console.log(`Joined room: ${roomId}`);
+    } catch (error) {
+      console.error(`Error joining room ${roomId}:`, error);
+      throw error;
+    }
+  }
+
   private async joinPublicRooms() {
     if (!this.client) return;
 
     try {
       console.log('Fetching public rooms...');
-      const serverUrl = new URL(this.homeserverUrl);
-      const serverName = process.env.MATRIX_SERVER_NAME || 'localhost';
+      const serverName = process.env.NEXT_PUBLIC_MATRIX_SERVER_NAME || 'localhost';
 
       // Get list of public rooms
       const response = await this.client.publicRooms({
-        limit: 1000, // Adjust this number based on your needs
+        limit: 1000,
         server: serverName,
       });
 
@@ -398,7 +586,6 @@ export class MatrixBot {
           }
         } catch (error) {
           console.error(`Failed to join room ${room.room_id}:`, error);
-          // Continue with next room even if this one fails
           continue;
         }
       }
@@ -422,18 +609,6 @@ export class MatrixBot {
       console.log('Bot stopped successfully');
     } catch (error) {
       console.error('Error stopping bot:', error);
-      throw error;
-    }
-  }
-
-  public async joinRoom(roomId: string) {
-    if (!this.client) return;
-
-    try {
-      await this.client.joinRoom(roomId);
-      console.log(`Joined room: ${roomId}`);
-    } catch (error) {
-      console.error(`Error joining room ${roomId}:`, error);
       throw error;
     }
   }

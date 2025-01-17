@@ -34,6 +34,7 @@ export const createClient = (config: {
   baseUrl: string;
   accessToken?: string;
   userId?: string;
+  device_id?: string;
 }) => {
   const clientConfig: ICreateClientOpts & { cryptoRuntime?: { name: string } } = {
     ...config,
