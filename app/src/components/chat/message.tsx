@@ -323,16 +323,25 @@ export function Message({
     if (!client) return;
 
     const user = client.getUser(sender);
-    if (user && user.avatarUrl) {
-      setAvatarUrl(user.avatarUrl);
-      // Only update display name if user has set a custom one
-      const customName = user.displayName;
-      if (customName && customName !== sender) {
-        setDisplayName(customName);
+    if (user) {
+      // Set avatar URL if available
+      if (user.avatarUrl) {
+        const httpUrl = client.mxcUrlToHttp(user.avatarUrl);
+        setAvatarUrl(
+          httpUrl || `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(sender)}`
+        );
+      } else {
+        setAvatarUrl(
+          `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(sender)}`
+        );
       }
+
+      // Set display name - prefer user's display name, fallback to userId without server part
+      setDisplayName(user.displayName || sender.split(':')[0].substring(1));
     } else {
-      // Use Dicebear as fallback
+      // Fallback for unknown users
       setAvatarUrl(`https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(sender)}`);
+      setDisplayName(sender.split(':')[0].substring(1));
     }
   }, [client, sender]);
 
