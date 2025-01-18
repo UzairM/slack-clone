@@ -1,8 +1,9 @@
 import { OpenAIEmbeddings } from '@langchain/openai';
 import { Pinecone } from '@pinecone-database/pinecone';
+import { randomUUID } from 'crypto';
 import dotenv from 'dotenv';
 import fs from 'fs';
-import { createClient, EventType, MatrixClient, MsgType } from 'matrix-js-sdk';
+import { createClient, MatrixClient } from 'matrix-js-sdk';
 import path from 'path';
 import readline from 'readline';
 
@@ -194,23 +195,23 @@ async function sendAndIngestMessage(
 ): Promise<void> {
   try {
     // Send message to Matrix
-    const result = await client.sendEvent(roomId, EventType.RoomMessage, {
-      msgtype: MsgType.Text,
-      body: content,
-    });
+    //   const result = await client.sendEvent(roomId, EventType.RoomMessage, {
+    //     msgtype: MsgType.Text,
+    //     body: content,
+    //   });
 
     // Wait a bit for the event to be processed
-    await new Promise(resolve => setTimeout(resolve, 100));
+    // await new Promise(resolve => setTimeout(resolve, 100));
 
     // Get embeddings for the message
     const embedding = await embeddings.embedQuery(content);
-
+    let uuid = randomUUID();
     // Create the Pinecone record
     const record = {
-      id: result.event_id,
+      id: uuid,
       values: embedding,
       metadata: {
-        messageId: result.event_id,
+        messageId: uuid,
         roomId,
         senderId,
         content,
@@ -277,7 +278,7 @@ const personaMapping: PersonaMapping = {
 
 // Constants for message sending
 const MESSAGE_DELAY_MS = 1; // 1 second delay between messages
-const PROGRESS_UPDATE_INTERVAL = 10; // Update progress every 10 messages
+const PROGRESS_UPDATE_INTERVAL = 1; // Update progress every 10 messages
 
 async function main() {
   try {
@@ -321,7 +322,7 @@ async function main() {
 
     for (const msg of messages) {
       const client = msg.sender === 'human1' ? client1 : client2;
-      const senderId = msg.sender === 'human1' ? '@testuser3:localhost' : '@testuser11:localhost';
+      const senderId = msg.sender === 'human1' ? '@allen:16.171.170.149' : '@joe:16.171.170.149';
 
       // Send and ingest the message
       await sendAndIngestMessage(client, roomId, msg.content, senderId, msg.timestamp);
@@ -338,7 +339,7 @@ async function main() {
 
       // Add delay before next message, but skip delay for the last message
       if (messagesSent < totalMessages) {
-        await new Promise(resolve => setTimeout(resolve, MESSAGE_DELAY_MS));
+        // await new Promise(resolve => setTimeout(resolve, MESSAGE_DELAY_MS));
       }
     }
 

@@ -51,12 +51,26 @@ services:
     build:
       context: ./app
       dockerfile: Dockerfile.bot
-    container_name: matrix-bot
+    container_name: matrix-bot-1
     volumes:
       - ./app:/app
       - /app/node_modules
     env_file:
       - ./app/.env.bot.docker
+    restart: unless-stopped
+    depends_on:
+      - synapse
+
+  bot2:
+    build:
+      context: ./app
+      dockerfile: Dockerfile.bot
+    container_name: matrix-bot-2
+    volumes:
+      - ./app:/app
+      - /app/node_modules
+    env_file:
+      - ./app/.env.bot.docker.2
     restart: unless-stopped
     depends_on:
       - synapse
