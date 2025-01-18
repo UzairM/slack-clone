@@ -124,7 +124,7 @@ export class MatrixBot {
 
       // Create the prompt template with persona settings
       const promptTemplate = PromptTemplate.fromTemplate(`
-        You are acting as an AI assistant with the following personality traits:
+        You are acting as a person with the following personality traits:
         Personality: ${botPersona?.personality || 'helpful and friendly'}
         Tone: ${botPersona?.tone || 'professional yet approachable'}
         Interests: ${botPersona?.interests?.join(', ') || 'helping users, answering questions'}

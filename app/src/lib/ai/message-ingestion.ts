@@ -168,7 +168,10 @@ export class MessageIngestionService {
         vector: queryEmbedding,
         topK: limit,
         filter: {
-          userId: userId,
+          $or: [
+            { userId: userId }, // Messages from the bot
+            { senderId: userId }, // Messages to the bot
+          ],
         },
         includeMetadata: true,
       });
@@ -186,7 +189,8 @@ export class MessageIngestionService {
           replyTo: match.metadata.replyTo,
           userId: match.metadata.userId,
           similarity: match.score,
-        }));
+        }))
+        .sort((a: MessageMetadata, b: MessageMetadata) => b.timestamp - a.timestamp);
     } catch (error) {
       console.error('Error querying relevant user messages:', error);
       throw error;
