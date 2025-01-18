@@ -286,17 +286,17 @@ async function main() {
     console.log(`Message delay: ${MESSAGE_DELAY_MS}ms`);
 
     // Get room ID
-    let roomId = '!lWWQaCpasfwdEvWGSB:localhost';
+    let roomId = '!SIRiRzkCbemSUwifkQ:16.171.170.149';
 
     // Get Human 1 credentials
     console.log('\nHuman 1 Login:');
-    const username1 = 'testuser3';
-    const password1 = '12345678';
+    const username1 = 'allen';
+    const password1 = '1234';
 
     // Get Human 2 credentials
     console.log('\nHuman 2 Login:');
-    const username2 = 'testuser11';
-    const password2 = '12345678';
+    const username2 = 'joe';
+    const password2 = '1234';
 
     // Parse the chat file - Fix the path to look in the root documentation folder
     const chatPath = path.join(process.cwd(), '..', 'documentation', 'human_chat.txt');

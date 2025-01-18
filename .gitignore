@@ -66,3 +66,4 @@ docker/synapse/email-templates/
 !docker/synapse/email.yaml
 !docker/synapse/localhost.log.config
 docker/synapse/homeserver.yaml
+app/scripts/parse-chat.ts
