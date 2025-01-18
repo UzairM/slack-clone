@@ -8,7 +8,6 @@ import {
   RoomMember,
   RoomMemberEvent,
 } from '@/lib/matrix/sdk';
-import { Document } from '@langchain/core/documents';
 import { StringOutputParser } from '@langchain/core/output_parsers';
 import { PromptTemplate } from '@langchain/core/prompts';
 import { RunnableSequence } from '@langchain/core/runnables';
@@ -16,7 +15,8 @@ import { ConsoleCallbackHandler } from '@langchain/core/tracers/console';
 import { ChatOpenAI, OpenAIEmbeddings } from '@langchain/openai';
 import { Pinecone } from '@pinecone-database/pinecone';
 import OpenAI from 'openai';
-import { messageIngestion } from '../ai/message-ingestion';
+import { messageIngestion, MessageMetadata } from '../ai/message-ingestion';
+import { personaManager } from '../ai/persona-manager';
 
 interface PineconeMetadata {
   text: string;
@@ -42,6 +42,7 @@ export class MatrixBot {
   private readonly callbacks = [new ConsoleCallbackHandler()];
   private lastSyncTimestamp: number = 0;
   private processedMessageIds: Set<string> = new Set();
+  private userId: string | null = null;
 
   constructor(
     private readonly homeserverUrl: string,
@@ -99,125 +100,219 @@ export class MatrixBot {
     }
   }
 
-  private async getContextualResponse(query: string): Promise<string> {
+  private async getContextualResponse(query: string, roomId: string): Promise<string> {
     try {
-      if (!this.pineconeIndex) {
-        console.log('Pinecone index not available, falling back to direct response');
-        const chain = RunnableSequence.from([
-          PromptTemplate.fromTemplate(
-            `You are a helpful assistant in a Matrix chat room. Be concise and friendly in your responses.
+      if (!this.userId) throw new Error('Bot user ID not set');
 
-            Question: {question}`
-          ),
-          this.chatModel,
-          new StringOutputParser(),
-        ]).withConfig({ callbacks: this.callbacks });
-
-        return await chain.invoke({ question: query });
+      // Load bot's persona from the database
+      const botPersona = await personaManager.getPersona(this.userId);
+      if (!botPersona) {
+        console.log('No persona found for bot, using default settings');
       }
 
-      // Try to get contextual response from Pinecone
-      try {
-        console.log('Generating query embedding...');
-        const queryEmbedding = await this.embeddings.embedQuery(query);
-        console.log('Generated embedding with dimension:', queryEmbedding.length);
+      // Get relevant context from past messages
+      const relevantMessages = await messageIngestion.queryRelevantUserMessages(
+        this.userId,
+        query,
+        5
+      );
+      const context = relevantMessages
+        .map(
+          (msg: MessageMetadata) => `${new Date(msg.timestamp).toLocaleString()}: ${msg.content}`
+        )
+        .join('\n');
 
-        console.log('Querying Pinecone for similar vectors...');
-        const queryResponse = await this.pineconeIndex.query({
-          vector: queryEmbedding,
-          topK: 3,
-          includeMetadata: true,
-        });
-        console.log('Found matches:', queryResponse.matches?.length || 0);
+      // Create the prompt template with persona settings
+      const promptTemplate = PromptTemplate.fromTemplate(`
+        You are acting as an AI assistant with the following personality traits:
+        Personality: ${botPersona?.personality || 'helpful and friendly'}
+        Tone: ${botPersona?.tone || 'professional yet approachable'}
+        Interests: ${botPersona?.interests?.join(', ') || 'helping users, answering questions'}
+        Response Style: ${botPersona?.responseStyle || 'concise and clear'}
 
-        // Format documents
-        const relevantDocs = queryResponse.matches.map((match: PineconeMatch) => {
-          if (match.metadata) {
-            console.log('Match similarity:', match.score);
-            return new Document({
-              pageContent: match.metadata.text || '',
-              metadata: { ...match.metadata, similarity: match.score },
-            });
-          }
-          return new Document({
-            pageContent: '',
-            metadata: { similarity: match.score },
-          });
-        });
+        Recent conversation context:
+        ${context}
 
-        // Create the RAG prompt template
-        const promptTemplate = PromptTemplate.fromTemplate(`
-          You are a helpful assistant in a Matrix chat room. Be concise and friendly in your responses.
-          Use the following context to help answer the question, but don't mention that you're using any context.
-          If the context isn't relevant, just respond based on your general knowledge.
+        Current query:
+        ${query}
 
-          Context: {context}
+        Generate a response that matches the specified personality traits and tone.
+        Keep the response natural and conversational while maintaining the defined style.
+      `);
 
-          Question: {question}
-        `);
+      const chain = RunnableSequence.from([
+        promptTemplate,
+        this.chatModel,
+        new StringOutputParser(),
+      ]).withConfig({ callbacks: this.callbacks });
 
-        // Format documents into a string
-        const formatDocuments = (docs: Document[]) => {
-          return docs.map((doc, i) => `Document ${i + 1}:\n${doc.pageContent}`).join('\n\n');
-        };
-
-        console.log('Creating chain with context...');
-        // Create the chain with consistent callbacks
-        const chain = RunnableSequence.from([
-          {
-            context: (input: { question: string; context: Document[] }) =>
-              formatDocuments(input.context),
-            question: (input: { question: string; context: Document[] }) => input.question,
-          },
-          promptTemplate,
-          this.chatModel,
-          new StringOutputParser(),
-        ]).withConfig({ callbacks: this.callbacks });
-
-        console.log('Executing chain...');
-        const response = await chain.invoke({
-          question: query,
-          context: relevantDocs,
-        });
-        console.log('Chain execution complete');
-
-        return response;
-      } catch (error) {
-        console.error('Error in RAG process:', error);
-        console.log('Falling back to direct response');
-
-        // Use the same chain structure for fallback
-        const chain = RunnableSequence.from([
-          PromptTemplate.fromTemplate(
-            `You are a helpful assistant in a Matrix chat room. Be concise and friendly in your responses.
-
-            Question: {question}`
-          ),
-          this.chatModel,
-          new StringOutputParser(),
-        ]).withConfig({ callbacks: this.callbacks });
-
-        return await chain.invoke({ question: query });
-      }
+      return await chain.invoke({});
     } catch (error) {
-      console.error('Error getting response:', error);
-      throw error;
+      console.error('Error getting persona-based response:', error);
+      return this.getFallbackResponse(query);
     }
+  }
+
+  private async getFallbackResponse(query: string): Promise<string> {
+    const chain = RunnableSequence.from([
+      PromptTemplate.fromTemplate(
+        `You are a helpful assistant in a Matrix chat room. Be concise and friendly in your responses.
+
+        Question: {question}`
+      ),
+      this.chatModel,
+      new StringOutputParser(),
+    ]).withConfig({ callbacks: this.callbacks });
+
+    return await chain.invoke({ question: query });
   }
 
   private async login(): Promise<{ access_token: string; user_id: string }> {
     // Create a temporary client for login
     const tempClient = createClient({
       baseUrl: this.homeserverUrl,
-      device_id: this.username, // Add device ID during login
+      device_id: this.username,
     });
 
     try {
       const response = await tempClient.login('m.login.password', {
         user: this.username,
         password: this.password,
-        device_id: this.username, // Include device ID in login request
+        device_id: this.username,
       });
+
+      this.userId = response.user_id;
+
+      // Check existing persona or generate from chat history
+      const existingPersona = await personaManager.getPersona(this.userId);
+
+      if (existingPersona) {
+        console.log('\nExisting Persona Found:', {
+          userId: existingPersona.userId,
+          displayName: existingPersona.displayName,
+          personality: existingPersona.personality,
+          tone: existingPersona.tone,
+          interests: existingPersona.interests,
+          responseStyle: existingPersona.responseStyle,
+        });
+      }
+
+      const shouldGeneratePersona =
+        !existingPersona ||
+        !existingPersona.personality ||
+        !existingPersona.tone ||
+        !existingPersona.interests ||
+        !existingPersona.responseStyle;
+
+      if (shouldGeneratePersona) {
+        console.log('\nGenerating new persona...');
+        if (!existingPersona) {
+          console.log('Reason: No existing persona found');
+        } else {
+          console.log('Reason: Missing fields:', {
+            missingPersonality: !existingPersona.personality,
+            missingTone: !existingPersona.tone,
+            missingInterests: !existingPersona.interests,
+            missingResponseStyle: !existingPersona.responseStyle,
+          });
+        }
+
+        try {
+          // Get recent messages from Pinecone
+          const recentMessages = await this.queryRelevantUserMessages(this.userId!, 100);
+
+          if (recentMessages.length > 0) {
+            console.log(`\nAnalyzing ${recentMessages.length} messages to generate persona...`);
+
+            // Prepare messages for analysis
+            const messageTexts = recentMessages.map(msg => msg.metadata?.content || '').join('\n');
+
+            const prompt = `Analyze the following chat messages and create a persona profile for the user. Focus on their communication style, interests, and personality traits. Return a JSON object with the following fields:
+              - personality: A description of their personality traits and characteristics
+              - tone: Their typical communication tone and style
+              - interests: An array of topics and subjects they frequently discuss or show interest in
+              - responseStyle: Their preferred way of communicating and responding
+
+              Messages to analyze:
+              ${messageTexts}`;
+
+            const completion = await this.openai.chat.completions.create({
+              model: this.openaiModel,
+              messages: [
+                {
+                  role: 'system',
+                  content:
+                    'You are an expert at analyzing communication patterns and creating user personas. Return only a raw JSON object without any markdown formatting or additional text.',
+                },
+                {
+                  role: 'user',
+                  content: prompt,
+                },
+              ],
+              temperature: 0.7,
+            });
+
+            const response = completion.choices[0]?.message?.content;
+            if (!response) throw new Error('No response from OpenAI');
+
+            // Clean the response string to remove any markdown or extra formatting
+            const cleanedResponse = response
+              .replace(/```json\s*/g, '')
+              .replace(/```\s*/g, '')
+              .trim();
+
+            try {
+              const analysis = JSON.parse(cleanedResponse);
+              console.log('\nGenerated Persona Analysis:', analysis);
+
+              const newPersona = {
+                userId: this.userId!,
+                displayName: this.username,
+                personality:
+                  analysis.personality || existingPersona?.personality || 'helpful and friendly',
+                tone: analysis.tone || existingPersona?.tone || 'professional yet approachable',
+                interests: analysis.interests ||
+                  existingPersona?.interests || ['helping users', 'answering questions'],
+                responseStyle:
+                  analysis.responseStyle || existingPersona?.responseStyle || 'concise and clear',
+              };
+
+              await personaManager.registerPersona(newPersona);
+              console.log('\nSaved New Persona:', newPersona);
+            } catch (parseError) {
+              console.error('Error parsing OpenAI response:', parseError);
+              console.error('Raw response:', response);
+              throw new Error('Failed to parse OpenAI response as JSON');
+            }
+          } else {
+            console.log('\nNo chat history found, using default persona values');
+            const defaultPersona = {
+              userId: this.userId!,
+              displayName: this.username,
+              personality: 'helpful and friendly',
+              tone: 'professional yet approachable',
+              interests: ['helping users', 'answering questions', 'providing information'],
+              responseStyle: 'concise and clear',
+            };
+            await personaManager.registerPersona(defaultPersona);
+            console.log('\nSaved Default Persona:', defaultPersona);
+          }
+        } catch (error) {
+          console.error('\nError generating persona from chat history:', error);
+          if (!existingPersona) {
+            const fallbackPersona = {
+              userId: this.userId!,
+              displayName: this.username,
+              personality: 'helpful and friendly',
+              tone: 'professional yet approachable',
+              interests: ['helping users', 'answering questions', 'providing information'],
+              responseStyle: 'concise and clear',
+            };
+            await personaManager.registerPersona(fallbackPersona);
+            console.log('\nSaved Fallback Persona:', fallbackPersona);
+          }
+        }
+      }
 
       return {
         access_token: response.access_token,
@@ -448,7 +543,7 @@ export class MatrixBot {
 
         try {
           // Get contextual AI response with bot-only prefix
-          const response = `[Automated Response]\n${await this.getContextualResponse(messageContent.trim())}`;
+          const response = `${await this.getContextualResponse(messageContent.trim(), room.roomId)}`;
 
           // Send response back to the room
           await this.client!.sendMessage(room.roomId, {
@@ -529,12 +624,6 @@ export class MatrixBot {
               if (!existingRoom || existingRoom.getMyMembership() !== 'join') {
                 await this.joinRoom(room.room_id);
                 console.log(`Joined new room: ${room.name || room.room_id}`);
-
-                // Send greeting message
-                await this.client.sendMessage(room.room_id, {
-                  msgtype: MsgType.Text,
-                  body: "Hello! I'm an AI assistant bot. I'll be here to help answer any questions you might have.",
-                });
               }
             } catch (error) {
               console.error(`Error joining room ${room.room_id}:`, error);
@@ -611,5 +700,116 @@ export class MatrixBot {
       console.error('Error stopping bot:', error);
       throw error;
     }
+  }
+
+  private async handleMessage(event: MatrixEvent, room: any) {
+    try {
+      // Skip if message is from the bot itself
+      if (event.getSender() === this.userId) return;
+
+      const messageContent = event.getContent().body;
+      if (!messageContent) return;
+
+      // Check if bot is the only active instance
+      const isOnlyInstance = await this.isBotOnlyInstance();
+      console.log('Is bot the only instance?', isOnlyInstance);
+
+      // Only proceed if bot is the only active instance
+      if (!isOnlyInstance) {
+        console.log('Skipping message - other instances are active');
+        return;
+      }
+
+      // Check if bot should respond based on mentions
+      const shouldRespond = await this.shouldRespondToMessage(event);
+
+      if (shouldRespond) {
+        try {
+          // Ingest the user's message
+          await messageIngestion.ingestMessage({
+            messageId: event.getId()!,
+            roomId: room.roomId,
+            senderId: event.getSender()!,
+            content: messageContent,
+            timestamp: event.getTs(),
+            type: 'text',
+            userId: event.getSender()!, // Store the original sender's ID
+          });
+
+          // Get contextual AI response with bot-only prefix
+          const response = `[Automated Response]\n${await this.getContextualResponse(messageContent.trim(), room.roomId)}`;
+
+          // Send response back to the room
+          const responseEvent = await this.client?.sendMessage(room.roomId, {
+            msgtype: MsgType.Text,
+            body: response,
+          });
+
+          // Ingest the bot's response for future context
+          if (responseEvent && this.userId) {
+            await messageIngestion.ingestMessage({
+              messageId: responseEvent.event_id!,
+              roomId: room.roomId,
+              senderId: this.userId,
+              content: response,
+              timestamp: Date.now(),
+              type: 'text',
+              userId: this.userId, // Store the bot's ID for its responses
+              replyTo: {
+                id: event.getId()!,
+                content: messageContent,
+                sender: event.getSender()!,
+              },
+            });
+          }
+        } catch (error) {
+          console.error('Error handling message:', error);
+          // Send error message to room
+          await this.client?.sendMessage(room.roomId, {
+            msgtype: MsgType.Text,
+            body: 'Sorry, I encountered an error while processing your message.',
+          });
+        }
+      }
+    } catch (error) {
+      console.error('Error in handleMessage:', error);
+    }
+  }
+
+  private async queryRelevantUserMessages(
+    userId: string,
+    limit: number = 100
+  ): Promise<{ metadata?: MessageMetadata }[]> {
+    if (!this.pineconeIndex) {
+      console.error('Pinecone index not initialized');
+      return [];
+    }
+
+    try {
+      const response = await this.pineconeIndex.query({
+        vector: await this.embeddings.embedQuery(''), // Dummy vector for metadata-only query
+        topK: limit,
+        filter: {
+          senderId: userId,
+        },
+        includeMetadata: true,
+      });
+
+      return response.matches || [];
+    } catch (error) {
+      console.error('Error querying relevant messages:', error);
+      return [];
+    }
+  }
+
+  private async shouldRespondToMessage(event: MatrixEvent): Promise<boolean> {
+    const content = event.getContent();
+    if (!content?.body) return false;
+
+    // Check if the bot is mentioned in the message
+    const isBotMentioned = content.body.toLowerCase().includes(this.username.toLowerCase());
+
+    // Only respond if the bot is mentioned
+    return isBotMentioned;
   }
 }

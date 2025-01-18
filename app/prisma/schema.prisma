@@ -68,3 +68,19 @@ model MessageReaction {
 
   @@unique([messageId, userId, emoji])
 }
+
+model Persona {
+  id          String   @id @default(cuid())
+  userId      String   @unique
+  displayName String
+  personality String?
+  tone        String?
+  interests   String[] @default([])
+  responseStyle String?
+  activeHoursStart Int?
+  activeHoursEnd   Int?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@map("personas")
+}

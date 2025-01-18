@@ -14,6 +14,7 @@ export interface MessageMetadata {
     content: string;
     sender: string;
   };
+  userId?: string;
 }
 
 export class MessageIngestionService {
@@ -77,75 +78,118 @@ export class MessageIngestionService {
   }
 
   async ingestMessage(metadata: MessageMetadata) {
+    if (!this.pineconeIndex || !this.embeddings) {
+      await this.initialize();
+      if (!this.pineconeIndex || !this.embeddings) {
+        throw new Error('Failed to initialize message ingestion service');
+      }
+    }
+
     try {
-      // Initialize if not already initialized
-      if (!this.pineconeIndex || !this.embeddings) {
-        await this.initialize();
-      }
-
-      // If still not initialized, skip ingestion
-      if (!this.pineconeIndex || !this.embeddings) {
-        console.warn('Message ingestion is disabled due to missing configuration');
-        return;
-      }
-
-      console.log('Ingesting message:', {
-        id: metadata.messageId,
-        content: metadata.content,
-        sender: metadata.senderId,
-        room: metadata.roomId,
-      });
-
-      // Generate embedding for the message content
       const embedding = await this.embeddings.embedQuery(metadata.content);
 
-      // Prepare the record for Pinecone
-      const record = {
-        id: metadata.messageId,
-        values: embedding,
-        metadata: {
-          roomId: metadata.roomId,
-          senderId: metadata.senderId,
-          timestamp: metadata.timestamp,
-          content: metadata.content,
-          type: metadata.type,
-          threadId: metadata.threadId,
-          replyTo: metadata.replyTo,
-        },
-      };
-
-      // Upsert the record to Pinecone
-      await this.pineconeIndex.upsert([record]);
+      await this.pineconeIndex.upsert({
+        vectors: [
+          {
+            id: metadata.messageId,
+            values: embedding,
+            metadata: {
+              ...metadata,
+              text: metadata.content,
+            },
+          },
+        ],
+      });
 
       console.log('Message ingested successfully:', metadata.messageId);
     } catch (error) {
       console.error('Error ingesting message:', error);
-      // Don't throw the error, just log it
+      throw error;
     }
   }
 
-  async queryUserMessages(userId: string, limit: number = 10): Promise<MessageMetadata[]> {
-    try {
+  async queryUserMessages(userId: string, limit: number = 5): Promise<MessageMetadata[]> {
+    if (!this.pineconeIndex || !this.embeddings) {
+      await this.initialize();
       if (!this.pineconeIndex || !this.embeddings) {
-        await this.initialize();
+        throw new Error('Failed to initialize message ingestion service');
       }
+    }
 
-      if (!this.pineconeIndex) {
-        console.warn('Message querying is disabled due to missing configuration');
-        return [];
-      }
+    try {
+      // Create a dummy vector for metadata-only query
+      const dummyVector = await this.embeddings.embedQuery('');
 
-      // Query messages by user ID
-      const queryResponse = await this.pineconeIndex.query({
-        filter: { senderId: userId },
+      const response = await this.pineconeIndex.query({
+        vector: dummyVector,
         topK: limit,
+        filter: {
+          senderId: userId,
+        },
         includeMetadata: true,
       });
 
-      return queryResponse.matches.map((match: any) => match.metadata);
+      return response.matches
+        .filter((match: any) => match.metadata)
+        .map((match: any) => ({
+          messageId: match.metadata.messageId,
+          roomId: match.metadata.roomId,
+          senderId: match.metadata.senderId,
+          content: match.metadata.content,
+          timestamp: match.metadata.timestamp,
+          type: match.metadata.type,
+          threadId: match.metadata.threadId,
+          replyTo: match.metadata.replyTo,
+          userId: match.metadata.userId,
+        }))
+        .sort((a: MessageMetadata, b: MessageMetadata) => b.timestamp - a.timestamp);
     } catch (error) {
       console.error('Error querying user messages:', error);
-      return [];
+      throw error;
+    }
+  }
+
+  async queryRelevantUserMessages(
+    userId: string,
+    query: string,
+    limit: number = 5
+  ): Promise<MessageMetadata[]> {
+    if (!this.pineconeIndex || !this.embeddings) {
+      await this.initialize();
+      if (!this.pineconeIndex || !this.embeddings) {
+        throw new Error('Failed to initialize message ingestion service');
+      }
+    }
+
+    try {
+      const queryEmbedding = await this.embeddings.embedQuery(query);
+
+      const response = await this.pineconeIndex.query({
+        vector: queryEmbedding,
+        topK: limit,
+        filter: {
+          userId: userId,
+        },
+        includeMetadata: true,
+      });
+
+      return response.matches
+        .filter((match: any) => match.metadata)
+        .map((match: any) => ({
+          messageId: match.metadata.messageId,
+          roomId: match.metadata.roomId,
+          senderId: match.metadata.senderId,
+          content: match.metadata.content,
+          timestamp: match.metadata.timestamp,
+          type: match.metadata.type,
+          threadId: match.metadata.threadId,
+          replyTo: match.metadata.replyTo,
+          userId: match.metadata.userId,
+          similarity: match.score,
+        }));
+    } catch (error) {
+      console.error('Error querying relevant user messages:', error);
+      throw error;
     }
   }
 }

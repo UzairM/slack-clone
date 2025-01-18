@@ -1,101 +1,66 @@
-import { StringOutputParser } from '@langchain/core/output_parsers';
-import { PromptTemplate } from '@langchain/core/prompts';
-import { RunnableSequence } from '@langchain/core/runnables';
-import { ChatOpenAI } from '@langchain/openai';
-import { messageIngestion, MessageMetadata } from './message-ingestion';
+import { prisma } from '@/lib/prisma';
+import type { Prisma } from '@prisma/client';
 
 interface PersonaConfig {
   userId: string;
-  displayName: string;
+  displayName?: string;
   personality?: string;
   tone?: string;
-  interests?: string[];
+  interests: string[];
   responseStyle?: string;
-  activeHours?: {
-    start: number;
-    end: number;
-  };
+  activeHoursStart?: number | null;
+  activeHoursEnd?: number | null;
 }
 
-export class PersonaManager {
-  private chatModel: ChatOpenAI;
-  private personas: Map<string, PersonaConfig> = new Map();
+class PersonaManager {
+  async getPersona(userId: string): Promise<PersonaConfig | null> {
+    try {
+      const persona = await prisma.persona.findUnique({
+        where: { userId },
+      });
 
-  constructor() {
-    this.chatModel = new ChatOpenAI({
-      modelName: process.env.NEXT_PUBLIC_OPENAI_MODEL || 'gpt-4-turbo-preview',
-      temperature: 0.7,
-      openAIApiKey: process.env.NEXT_PUBLIC_OPENAI_API_KEY!,
-    });
-  }
+      if (!persona) return null;
 
-  registerPersona(config: PersonaConfig) {
-    this.personas.set(config.userId, config);
-  }
-
-  unregisterPersona(userId: string) {
-    this.personas.delete(userId);
-  }
-
-  getPersona(userId: string): PersonaConfig | undefined {
-    return this.personas.get(userId);
-  }
-
-  async shouldRespondForUser(userId: string): Promise<boolean> {
-    const persona = this.personas.get(userId);
-    if (!persona) return false;
-
-    // Check if within active hours
-    if (persona.activeHours) {
-      const currentHour = new Date().getHours();
-      if (currentHour < persona.activeHours.start || currentHour >= persona.activeHours.end) {
-        return true;
-      }
+      return {
+        userId: persona.userId,
+        displayName: persona.displayName || undefined,
+        personality: persona.personality || undefined,
+        tone: persona.tone || undefined,
+        interests: persona.interests,
+        responseStyle: persona.responseStyle || undefined,
+        activeHoursStart: persona.activeHoursStart,
+        activeHoursEnd: persona.activeHoursEnd,
+      };
+    } catch (error) {
+      console.error('Error fetching persona:', error);
+      return null;
     }
-
-    return false;
   }
 
-  async generateResponse(
-    userId: string,
-    messageContent: string,
-    roomContext: string
-  ): Promise<string> {
-    const persona = this.personas.get(userId);
-    if (!persona) throw new Error('Persona not found');
+  async registerPersona(config: PersonaConfig): Promise<void> {
+    try {
+      const data: Prisma.PersonaUncheckedCreateInput = {
+        userId: config.userId,
+        displayName: config.displayName || '',
+        personality: config.personality || '',
+        tone: config.tone || '',
+        interests: config.interests,
+        responseStyle: config.responseStyle || '',
+        activeHoursStart: config.activeHoursStart,
+        activeHoursEnd: config.activeHoursEnd,
+      };
 
-    // Get user's past messages for context
-    const userMessages = await messageIngestion.queryUserMessages(userId, 5);
-    const messageHistory = userMessages.map((msg: MessageMetadata) => `${msg.content}`).join('\n');
-
-    // Create the prompt template
-    const promptTemplate = PromptTemplate.fromTemplate(`
-      You are acting as an AI assistant for ${persona.displayName}.
-      Personality: ${persona.personality || 'friendly and helpful'}
-      Tone: ${persona.tone || 'casual and approachable'}
-      Interests: ${persona.interests?.join(', ') || 'various topics'}
-      Response Style: ${persona.responseStyle || 'concise and clear'}
-
-      Recent message history from ${persona.displayName}:
-      ${messageHistory}
-
-      Current room context:
-      ${roomContext}
-
-      Incoming message:
-      ${messageContent}
-
-      Generate a response that matches ${persona.displayName}'s communication style and personality.
-      Keep the response natural and conversational, as if ${persona.displayName} themselves were responding.
-    `);
-
-    // Create and execute the chain
-    const chain = RunnableSequence.from([promptTemplate, this.chatModel, new StringOutputParser()]);
-
-    const response = await chain.invoke({});
-    return response;
+      await prisma.persona.upsert({
+        where: { userId: config.userId },
+        update: data,
+        create: data,
+      });
+      console.log('Successfully registered/updated persona for user:', config.userId);
+    } catch (error) {
+      console.error('Error registering persona:', error);
+      throw error;
+    }
   }
 }
 
-// Export singleton instance
 export const personaManager = new PersonaManager();

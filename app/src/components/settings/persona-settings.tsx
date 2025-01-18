@@ -1,199 +1,227 @@
 'use client';
 
 import { Button } from '@/components/ui/button';
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardFooter,
-  CardHeader,
-  CardTitle,
-} from '@/components/ui/card';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Switch } from '@/components/ui/switch';
 import { Textarea } from '@/components/ui/textarea';
 import { useMatrix } from '@/hooks/use-matrix';
+import { messageIngestion } from '@/lib/ai/message-ingestion';
 import { personaManager } from '@/lib/ai/persona-manager';
+import { OpenAI } from 'openai';
 import { useEffect, useState } from 'react';
-import { toast } from 'sonner';
-
-interface PersonaSettings {
-  enabled: boolean;
-  personality: string;
-  tone: string;
-  interests: string[];
-  responseStyle: string;
-  activeHours: {
-    start: number;
-    end: number;
-  };
-}
 
 export function PersonaSettings() {
   const { client } = useMatrix();
-  const [settings, setSettings] = useState<PersonaSettings>({
-    enabled: false,
-    personality: '',
-    tone: '',
-    interests: [],
-    responseStyle: '',
-    activeHours: {
-      start: 0,
-      end: 24,
-    },
-  });
+  const [userId, setUserId] = useState<string>('');
+  const [displayName, setDisplayName] = useState('');
+  const [personality, setPersonality] = useState('');
+  const [tone, setTone] = useState('');
+  const [interests, setInterests] = useState('');
+  const [responseStyle, setResponseStyle] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
+  const [isGenerating, setIsGenerating] = useState(false);
 
-  // Load settings from local storage on mount
   useEffect(() => {
-    if (!client) return;
-    const userId = client.getUserId();
-    if (!userId) return;
+    async function loadPersona() {
+      if (!client) return;
+      setIsLoading(true);
+      try {
+        const userId = client.getUserId();
+        if (!userId) return;
+        setUserId(userId);
 
-    const savedSettings = localStorage.getItem(`persona_settings_${userId}`);
-    if (savedSettings) {
-      const parsed = JSON.parse(savedSettings);
-      setSettings(parsed);
-
-      // Register persona if enabled
-      if (parsed.enabled) {
-        personaManager.registerPersona({
-          userId,
-          displayName: client.getUser(userId)?.displayName || userId.split(':')[0].substring(1),
-          personality: parsed.personality,
-          tone: parsed.tone,
-          interests: parsed.interests,
-          responseStyle: parsed.responseStyle,
-          activeHours: parsed.activeHours,
-        });
+        const persona = await personaManager.getPersona(userId);
+        if (persona) {
+          setDisplayName(persona.displayName || '');
+          setPersonality(persona.personality || '');
+          setTone(persona.tone || '');
+          setInterests(persona.interests?.join(', ') || '');
+          setResponseStyle(persona.responseStyle || '');
+        }
+      } catch (error) {
+        console.error('Error loading persona:', error);
+      } finally {
+        setIsLoading(false);
       }
     }
+
+    loadPersona();
   }, [client]);
 
-  // Save settings and update persona manager
-  const saveSettings = () => {
-    if (!client) return;
-    const userId = client.getUserId();
+  const handleSave = async () => {
     if (!userId) return;
-
-    // Save to local storage
-    localStorage.setItem(`persona_settings_${userId}`, JSON.stringify(settings));
-
-    // Update persona manager
-    if (settings.enabled) {
-      personaManager.registerPersona({
+    setIsLoading(true);
+    try {
+      await personaManager.registerPersona({
         userId,
-        displayName: client.getUser(userId)?.displayName || userId.split(':')[0].substring(1),
-        personality: settings.personality,
-        tone: settings.tone,
-        interests: settings.interests,
-        responseStyle: settings.responseStyle,
-        activeHours: settings.activeHours,
+        displayName,
+        personality,
+        tone,
+        interests: interests
+          .split(',')
+          .map(i => i.trim())
+          .filter(i => i),
+        responseStyle,
       });
-      toast.success('AI Persona enabled');
-    } else {
-      personaManager.unregisterPersona(userId);
-      toast.success('AI Persona disabled');
+    } catch (error) {
+      console.error('Error saving persona:', error);
+    } finally {
+      setIsLoading(false);
     }
   };
 
-  if (!client) return null;
+  const generateFromChatHistory = async () => {
+    if (!userId || !process.env.NEXT_PUBLIC_OPENAI_API_KEY) return;
+    setIsGenerating(true);
+
+    try {
+      console.log('\n[PersonaSettings] Starting chat history analysis...');
+      console.log('[PersonaSettings] Fetching chat history from Pinecone...');
+      const messages = await messageIngestion.queryRelevantUserMessages(userId, '', 100);
+      console.log(`[PersonaSettings] Found ${messages.length} messages`);
+
+      if (messages.length === 0) {
+        console.log('[PersonaSettings] No chat history found');
+        return;
+      }
+
+      // Format messages for analysis
+      const chatHistory = messages
+        .map(msg => `${new Date(msg.timestamp).toLocaleString()}: ${msg.content}`)
+        .join('\n');
+
+      console.log('[PersonaSettings] Analyzing chat history with OpenAI...');
+      const openai = new OpenAI({
+        apiKey: process.env.NEXT_PUBLIC_OPENAI_API_KEY,
+      });
+
+      const prompt = `Based on the following chat history, analyze the user's communication style and personality. Format the response as JSON with the following fields:
+      - personality: A description of their personality traits
+      - tone: Their typical communication tone
+      - interests: An array of their main interests and topics they discuss
+      - responseStyle: Their typical style of responding
+
+      Chat History:
+      ${chatHistory}
+
+      Provide only the JSON response, no other text.`;
+
+      const completion = await openai.chat.completions.create({
+        model: process.env.NEXT_PUBLIC_OPENAI_MODEL || 'gpt-4-turbo-preview',
+        messages: [{ role: 'user', content: prompt }],
+      });
+
+      const response = completion.choices[0]?.message?.content;
+      if (!response) throw new Error('No response from OpenAI');
+
+      console.log('[PersonaSettings] Parsing analysis results...');
+      const analysis = JSON.parse(response);
+      console.log('[PersonaSettings] Generated analysis:', analysis);
+
+      // Update the form fields
+      console.log('[PersonaSettings] Updating form fields with generated values...');
+      setPersonality(analysis.personality || '');
+      setTone(analysis.tone || '');
+      setInterests(Array.isArray(analysis.interests) ? analysis.interests.join(', ') : '');
+      setResponseStyle(analysis.responseStyle || '');
+
+      // Save to database
+      console.log('[PersonaSettings] Saving generated persona to database...');
+      await personaManager.registerPersona({
+        userId,
+        displayName,
+        personality: analysis.personality || '',
+        tone: analysis.tone || '',
+        interests: Array.isArray(analysis.interests) ? analysis.interests : [],
+        responseStyle: analysis.responseStyle || '',
+      });
+
+      console.log('[PersonaSettings] Successfully generated and saved persona');
+    } catch (error) {
+      console.error('[PersonaSettings] Error generating persona from chat history:', error);
+    } finally {
+      setIsGenerating(false);
+    }
+  };
+
+  if (!client) {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle>AI Persona Settings</CardTitle>
+          <CardDescription>Configure how your AI persona behaves in conversations</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="text-center py-4 text-muted-foreground">
+            Please log in to configure your AI persona settings.
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
 
   return (
     <Card>
       <CardHeader>
         <CardTitle>AI Persona Settings</CardTitle>
-        <CardDescription>
-          Configure how your AI persona behaves when responding to messages while you&apos;re away
-        </CardDescription>
+        <CardDescription>Configure how your AI persona behaves in conversations</CardDescription>
       </CardHeader>
-      <CardContent className="space-y-6">
-        <div className="flex items-center justify-between">
-          <div className="space-y-0.5">
-            <Label>Enable AI Persona</Label>
-            <div className="text-sm text-muted-foreground">
-              Let an AI respond on your behalf when you&apos;re offline
-            </div>
-          </div>
-          <Switch
-            checked={settings.enabled}
-            onCheckedChange={checked => setSettings({ ...settings, enabled: checked })}
+      <CardContent className="space-y-4">
+        <div className="space-y-2">
+          <Label htmlFor="displayName">Display Name</Label>
+          <Input
+            id="displayName"
+            value={displayName}
+            onChange={e => setDisplayName(e.target.value)}
+            placeholder="Your display name"
           />
         </div>
-
         <div className="space-y-2">
-          <Label>Personality</Label>
+          <Label htmlFor="personality">Personality</Label>
           <Textarea
-            placeholder="Describe your AI persona's personality (e.g., friendly and professional)"
-            value={settings.personality}
-            onChange={e => setSettings({ ...settings, personality: e.target.value })}
+            id="personality"
+            value={personality}
+            onChange={e => setPersonality(e.target.value)}
+            placeholder="Describe the personality (e.g., friendly, analytical, humorous)"
           />
         </div>
-
         <div className="space-y-2">
-          <Label>Tone</Label>
-          <Input
-            placeholder="Communication tone (e.g., casual, formal)"
-            value={settings.tone}
-            onChange={e => setSettings({ ...settings, tone: e.target.value })}
+          <Label htmlFor="tone">Tone</Label>
+          <Textarea
+            id="tone"
+            value={tone}
+            onChange={e => setTone(e.target.value)}
+            placeholder="Describe the tone (e.g., casual, professional, empathetic)"
           />
         </div>
-
         <div className="space-y-2">
-          <Label>Interests</Label>
-          <Input
-            placeholder="Comma-separated interests"
-            value={settings.interests.join(', ')}
-            onChange={e =>
-              setSettings({ ...settings, interests: e.target.value.split(',').map(s => s.trim()) })
-            }
+          <Label htmlFor="interests">Interests</Label>
+          <Textarea
+            id="interests"
+            value={interests}
+            onChange={e => setInterests(e.target.value)}
+            placeholder="List interests, separated by commas"
           />
         </div>
-
         <div className="space-y-2">
-          <Label>Response Style</Label>
-          <Input
-            placeholder="How responses should be formatted (e.g., concise, detailed)"
-            value={settings.responseStyle}
-            onChange={e => setSettings({ ...settings, responseStyle: e.target.value })}
+          <Label htmlFor="responseStyle">Response Style</Label>
+          <Textarea
+            id="responseStyle"
+            value={responseStyle}
+            onChange={e => setResponseStyle(e.target.value)}
+            placeholder="Describe the response style (e.g., concise, detailed, uses emojis)"
           />
         </div>
-
-        <div className="space-y-2">
-          <Label>Active Hours (when AI should respond)</Label>
-          <div className="flex items-center gap-2">
-            <Input
-              type="number"
-              min={0}
-              max={23}
-              value={settings.activeHours.start}
-              onChange={e =>
-                setSettings({
-                  ...settings,
-                  activeHours: { ...settings.activeHours, start: parseInt(e.target.value) },
-                })
-              }
-            />
-            <span>to</span>
-            <Input
-              type="number"
-              min={0}
-              max={24}
-              value={settings.activeHours.end}
-              onChange={e =>
-                setSettings({
-                  ...settings,
-                  activeHours: { ...settings.activeHours, end: parseInt(e.target.value) },
-                })
-              }
-            />
-          </div>
-          <div className="text-sm text-muted-foreground">24-hour format (e.g., 9 to 17)</div>
+        <div className="flex space-x-4">
+          <Button onClick={handleSave} disabled={isLoading}>
+            {isLoading ? 'Saving...' : 'Save Changes'}
+          </Button>
+          <Button onClick={generateFromChatHistory} disabled={isGenerating} variant="secondary">
+            {isGenerating ? 'Analyzing Chat History...' : 'Generate from Chat History'}
+          </Button>
         </div>
       </CardContent>
-      <CardFooter>
-        <Button onClick={saveSettings}>Save Settings</Button>
-      </CardFooter>
     </Card>
   );
 }
