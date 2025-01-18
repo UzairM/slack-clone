@@ -11,7 +11,7 @@ const envPath = path.resolve(process.cwd(), '.env.bot');
 dotenv.config({ path: envPath });
 
 // Validate required environment variables
-const MATRIX_HOMESERVER_URL = process.env.NEXT_PUBLIC_MATRIX_HOMESERVER_URL;
+const MATRIX_HOMESERVER_URL = 'http://16.171.170.149:8008';
 const OPENAI_API_KEY = process.env.NEXT_PUBLIC_OPENAI_API_KEY;
 const PINECONE_API_KEY = process.env.NEXT_PUBLIC_PINECONE_API_KEY;
 const PINECONE_INDEX = process.env.NEXT_PUBLIC_PINECONE_INDEX;

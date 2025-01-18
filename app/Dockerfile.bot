@@ -4,23 +4,31 @@ FROM node:20-alpine
 # Set working directory
 WORKDIR /app
 
-# Set DOCKER environment variable
+# Set environment variables
 ENV DOCKER=true
+ENV NODE_ENV=production
+ENV HUSKY=0
+ENV HUSKY_SKIP_INSTALL=1
+
+# Install tsx globally and add necessary build tools
+RUN apk add --no-cache python3 make g++
 
 # Install tsx globally
 RUN npm install -g tsx
 
-# Copy package files
+# Copy package files and prisma schema first
 COPY package.json package-lock.json ./
+COPY prisma ./prisma/
 
-# Install dependencies
-RUN npm ci
+# Install dependencies without running scripts
+RUN npm install --ignore-scripts
 
-# Copy source code
+# Copy the rest of the source code
 COPY . .
 
-# Generate Prisma client
+# Generate Prisma client with output explicitly set
 RUN npx prisma generate
+
 
 # Start the bot
 CMD ["npm", "run", "bot"]
